@@ -1,0 +1,12 @@
+{
+  "selector": "wildrig",
+  "argv": [
+    "/opt/YOUR_MINER/wildrig-multi",
+    "--algo", "pearlhash",
+    "--url", "stratum+tcp://pool.example.com:3333",
+    "--user", "YOUR_WALLET.YOUR_WORKER",
+    "--pass", "x",
+    "--print-time", "10",
+    "--no-color"
+  ]
+}

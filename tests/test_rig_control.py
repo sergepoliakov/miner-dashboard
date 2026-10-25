@@ -786,3 +786,47 @@ class RigControlTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class ExplicitGpuControlTests(unittest.TestCase):
+    setUp=RigControlTests.setUp
+    rig=RigControlTests.rig
+    def test_stop_start_persist_and_touch_only_selected_gpu(self):
+        gpu=self.cards[2];unit='tsc-2.service'
+        for i in range(6):
+            self.host.states[f'prl-{i}.service']='active';self.host.boot[f'prl-{i}.service']='enabled';self.host.owners[self.cards[i]]={f'prl-{i}.service'}
+        rig=self.rig();rig.assign(gpu,'TSC');self.host.owners[gpu]={unit}
+        before={u:s for u,s in self.host.states.items() if u not in {'prl-2.service',unit}}
+        result=rig.control_gpu(gpu,'stop');self.assertEqual(result['symbol'],'STOP')
+        self.assertEqual(self.host.boot[unit],'disabled');self.assertNotIn(unit,self.host.compute().get(gpu,set()))
+        self.assertEqual(self.rig().snapshot()['gpus'][gpu]['resume_symbol'],'TSC')
+        self.rig().control_gpu(gpu,'start');self.assertEqual(self.host.states[unit],'active');self.assertEqual(self.host.boot[unit],'enabled')
+        self.assertEqual(before,{u:s for u,s in self.host.states.items() if u not in {'prl-2.service',unit}})
+    def test_start_requires_explicit_coin_for_unselected_multi_profile_card(self):
+        with self.assertRaisesRegex(RigError,'Choose a coin'):self.rig().control_gpu(self.cards[0],'start')
+        self.assertFalse(any(c[2] in {'start','stop'} for c in self.host.commands if len(c)>2))
+    def test_single_profile_can_start_without_previous_state(self):
+        for g in self.config['gpus'].values():g['profiles']={'PRL':g['profiles']['PRL']}
+        self.path.write_text(json.dumps(self.config));self.rig().control_gpu(self.cards[0],'start')
+        self.assertEqual(self.host.states['prl-0.service'],'active')
+    def test_removed_gpu_can_be_stopped_but_cannot_start(self):
+        gpu=self.cards[0];self.host.cards.remove(gpu);self.host.states['prl-0.service']='active'
+        self.rig().control_gpu(gpu,'stop');self.assertEqual(self.host.states['prl-0.service'],'inactive')
+        with self.assertRaisesRegex(RigError,'absent'):self.rig().control_gpu(gpu,'start')
+    def test_shared_profile_is_explained_and_never_stopped(self):
+        for g in self.config['gpus'].values():g['profiles']={'PRL':'legacy-all.service'}
+        self.path.write_text(json.dumps(self.config));rig=self.rig()
+        self.assertFalse(rig.snapshot()['gpus'][self.cards[0]]['control_supported'])
+        with self.assertRaisesRegex(RigError,'multi-GPU'):rig.control_gpu(self.cards[0],'stop')
+        self.assertFalse(any(c[2]=='stop' for c in self.host.commands if len(c)>2))
+
+    def test_stop_remembers_externally_started_coin(self):
+        gpu=self.cards[1];self.host.states['tsc-1.service']='active';self.host.boot['tsc-1.service']='enabled'
+        self.rig().control_gpu(gpu,'stop');self.rig().control_gpu(gpu,'start')
+        self.assertEqual(self.host.states['tsc-1.service'],'active');self.assertEqual(self.host.states['prl-1.service'],'inactive')
+
+    def test_repeated_start_stop_do_not_restart_an_active_card(self):
+        gpu=self.cards[0];self.rig().assign(gpu,'PRL');self.host.owners[gpu]={'prl-0.service'}
+        self.host.commands.clear();self.rig().control_gpu(gpu,'start')
+        self.assertFalse(any(c[2] in {'start','stop'} for c in self.host.commands))
+        self.rig().control_gpu(gpu,'stop');self.host.commands.clear();self.rig().control_gpu(gpu,'stop')
+        self.assertFalse(any(c[2] in {'start','stop'} for c in self.host.commands))

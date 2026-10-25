@@ -6,7 +6,7 @@ import argparse, grp, json, os, pwd, re, stat, subprocess
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 DEST=Path('/opt/miner-dashboard')
-APP_FILES=('runtime_paths.py','gpu_display.py','gpu_tune.py','mining_monitor.html','mining_monitor.py','noid_cpu_control.py','noid_cpu_update.py','pool_notices.py','rgb_control.py','rgb_daemon.py','rig_control.py','safetrade_api_broker.py','safetrade_client.py','web_gateway.py')
+APP_FILES=('per_gpu_miner.py','runtime_paths.py','gpu_display.py','gpu_tune.py','mining_monitor.html','mining_monitor.py','noid_cpu_control.py','noid_cpu_update.py','pool_notices.py','rgb_control.py','rgb_daemon.py','rig_control.py','safetrade_api_broker.py','safetrade_client.py','web_gateway.py')
 
 def safe_parents(path):
     for p in (path,*path.parents):

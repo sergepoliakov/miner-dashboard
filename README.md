@@ -14,7 +14,7 @@
 | 功能 | 说明 |
 | --- | --- |
 | 显卡看板 | 核心温度、显存温度可用性、功耗/上限、风扇、占用、每卡算力和趋势 |
-| 矿工管理 | 绑定已安装的 systemd 用户服务；逐卡启停、切币、开机选择与冲突检查 |
+| 矿工管理 | 绑定已安装的 systemd 用户服务；每卡独立启动/停止、记住上次币种、开机选择与冲突检查 |
 | 功耗与频率 | 可选 root 助手，经受限 Unix socket 调节；按 UUID 保存和恢复 |
 | 行情雷达 | 报价、全网算力/难度、池端与本机数据、估算收益、电费和数据时效 |
 | RGB 选择 | 整机选择颜色、开灯/关灯；固定 7.5 秒呼吸，20% 底光；需支持的 OpenRGB 设备 |
@@ -35,7 +35,7 @@ cd miner-dashboard
 python3 scripts/demo.py
 ```
 
-打开 **[本机 DEMO](http://127.0.0.1:18091)**。不需要显卡、钱包、交易所账号或管理员权限。DEMO 的操作按钮不会执行任何写入；所有 POST 均拒绝。退出用 `Ctrl+C`。
+打开 **[本机 DEMO](http://127.0.0.1:18091)**。不需要显卡、钱包、交易所账号或管理员权限。DEMO 可点击“启动本卡 / 停止本卡”，只改变隔离的模拟状态；真实硬件、交易和其他写操作均拒绝。退出用 `Ctrl+C`。
 
 ## 接到自己的矿机
 
@@ -62,6 +62,8 @@ MINING_MONITOR_ALLOW_EMPTY_COINS=1 python3 app/mining_monitor.py
 
 ## 界面
 
+![DEMO 每张显卡独立启动与停止](docs/images/control.jpg)
+
 ![DEMO 调节与 RGB 选择](docs/images/tuning.jpg)
 
 ![DEMO 行情雷达](docs/images/radar.jpg)
@@ -71,7 +73,7 @@ MINING_MONITOR_ALLOW_EMPTY_COINS=1 python3 app/mining_monitor.py
 ## 支持范围与已知边界
 
 - 正式部署以 Linux/systemd/NVIDIA 为目标；AMD、Windows 的硬件与服务控制尚未实现。演示不受这个限制。
-- 每张卡独立启停需要独立矿工服务。共用一个多卡矿工时，逐卡切换会被拦截，避免误停其他卡；请用 systemd 统一控制该服务。
+- 每张卡独立启停需要独立矿工服务。共用一个多卡矿工时，逐卡切换会被拦截，避免误停其他卡；请按[逐卡配置指南](docs/PER_GPU.md)生成独立服务后操作。
 - PRL/TSC/NOID/QTC 相关解析与更新适配器保留在源码中；不同矿池字段、日志格式及第三方接口会变，需核对配置。程序运行不等于已接受份额。
 - 当前通用版没有启用原部署的固定 NOID GPU API 映射；可用通用 GPU 日志适配器。NOID CPU 支持单独保留。
 - NVIDIA 驱动不提供某个传感器时显示 N/A。仓库未分发非官方显存寄存器温度读取程序。
@@ -82,6 +84,7 @@ MINING_MONITOR_ALLOW_EMPTY_COINS=1 python3 app/mining_monitor.py
 
 ## 文档与开发
 
+- [每张卡启动/停止与共享矿工迁移](docs/PER_GPU.md)
 - [安装 / 升级 / 卸载 / 重启验收](docs/INSTALL.md)
 - [配置、日志解析、GPU 固定顺序和矿池收款](docs/CONFIGURATION.md)
 - [远程 HTTPS 与 SSH](docs/REMOTE_ACCESS.md)
@@ -100,7 +103,7 @@ python3 -m compileall -q app scripts
 
 ## English quick start
 
-A self-hosted Linux/NVIDIA mining dashboard with per-GPU telemetry, systemd miner control, optional power/clock restoration, a market radar, fixed-phase RGB color control, and a password-authenticated HTTPS gateway. Run `python3 scripts/demo.py` for an entirely synthetic, loopback-only demo with no dependencies beyond Python 3.11+. See the Chinese deployment guides above. SafeTrade is optional and read-only by default; live trading is unverified. No miners, wallets, credentials, or private deployment history are bundled.
+A self-hosted Linux/NVIDIA mining dashboard with per-GPU telemetry, systemd miner control, optional power/clock restoration, a market radar, fixed-phase RGB color control, and a password-authenticated HTTPS gateway. Run `python3 scripts/demo.py` for an entirely synthetic, loopback-only demo with no dependencies beyond Python 3.11+. Per-GPU start/stop buttons alter simulated state only. See the Chinese deployment guides above. SafeTrade is optional and read-only by default; live trading is unverified. No miners, wallets, credentials, or private deployment history are bundled.
 
 ## 许可证
 

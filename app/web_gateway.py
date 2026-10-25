@@ -32,7 +32,7 @@ READ = {'/', '/index.html', '/api/status', '/api/rig', '/api/history', '/api/rgb
         '/api/thermal-log', '/api/alert-log', '/gpu_fans_strip.jpg', '/gpu_fans_strip.mp4'}
 WRITE = {'/api/exchange/order/preview', '/api/exchange/order/submit', '/api/mining/switch',
          '/api/profit-threshold', '/api/tune', '/api/noid/threads', '/api/manual-price',
-         '/api/rig/assign', '/api/rig/check-updates', '/api/rig/upgrade',
+         '/api/rig/assign', '/api/rig/gpu', '/api/rig/check-updates', '/api/rig/upgrade',
          '/api/rig/notices/check', '/api/rig/notices/read', '/api/rgb'}
 OPENER = build_opener(ProxyHandler({}))
 RATE_LOCK = threading.Lock()

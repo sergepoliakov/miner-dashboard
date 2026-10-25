@@ -349,6 +349,19 @@ def validate_config(item, filename):
         fail("rate.gpu_map 必须是 {日志里的卡号: 物理卡号} 的对象")
     # 一个币在几张卡上各跑一个矿工服务（PRL：GPU0、GPU1 各一个，各写各的日志）：gpu_services 登记每张卡的服务，
     # rate.log_by_gpu 登记每张卡的日志；只有在跑的那几张卡计入产出和功耗（同 NOID）
+    uuid_services = item.get("gpu_uuid_services")
+    if uuid_services is not None:
+        from per_gpu_miner import UUID
+        logs = rate.get("log_by_uuid")
+        if (not isinstance(uuid_services, dict) or not uuid_services or item.get("kind") in {"cpu", "cpu_gpu"} or
+                any(not isinstance(u,str) or not UUID.fullmatch(u) or not isinstance(unit,str) or not SERVICE_RE.fullmatch(unit) for u,unit in uuid_services.items()) or
+                len(set(uuid_services.values())) != len(uuid_services) or item["service"] not in uuid_services.values() or
+                item.get("gpu_services") is not None or rate.get("log_by_gpu") is not None or
+                not isinstance(logs,dict) or set(logs)!=set(uuid_services) or
+                any(not isinstance(v,str) or not Path(v).is_absolute() for v in logs.values())):
+            fail("gpu_uuid_services 需要独立单卡服务及对应的绝对 log_by_uuid 路径")
+    elif rate.get("log_by_uuid") is not None:
+        fail("log_by_uuid 需要 gpu_uuid_services")
     gpu_services = item.get("gpu_services")
     if gpu_services is not None:
         if (not isinstance(gpu_services, dict) or not gpu_services or
@@ -609,7 +622,10 @@ def read_gpu_services_rate(coin, now, state):
     cards = []
     for index in coin["gpu_indices"]:
         sub = {**rate, "log": rate["log_by_gpu"][str(index)]}
-        cards.append(read_rate(sub, now, state.setdefault(str(index), {})))
+        card = read_rate(sub, now, state.setdefault(str(index), {}))
+        if rate.get("single_gpu_logs") and card.get("status") == "正常" and card.get("total") is not None:
+            card = {**card, "per_gpu": {str(index): card["total"]}}
+        cards.append(card)
     normal = [card for card in cards if card["status"] == "正常"]
     if not normal:
         return cards[0] if cards else {"status": "暂无算力采样"}
@@ -1216,6 +1232,19 @@ def service_status(unit):
 
 def coin_runtime(coin):
     """返回 (服务状态, 实际在挖的配置)。NOID 每张卡一个矿工服务：任一在跑即算在挖，显卡只算在跑的那几张。"""
+    if coin.get("gpu_uuid_services"):
+        from per_gpu_miner import inventory
+        try:
+            current = inventory()
+        except (OSError, ValueError, subprocess.SubprocessError):
+            return "unknown", {**coin, "gpu_indices": [], "gpu_services": {}}
+        services = {str(current[u]["index"]): unit for u,unit in coin["gpu_uuid_services"].items() if u in current}
+        if not services:
+            return "inactive", {**coin, "gpu_indices": [], "gpu_services": {}}
+        coin = {**coin, "gpu_indices": [int(i) for i in services], "gpu_services": services,
+                "rate": {**coin["rate"], "single_gpu_logs": True,
+                         "log_by_gpu": {str(current[u]["index"]): coin["rate"]["log_by_uuid"][u]
+                                        for u in coin["gpu_uuid_services"] if u in current}}}
     gpu_services = coin.get("gpu_services")
     if gpu_services:
         indices = coin["gpu_indices"]
@@ -3433,7 +3462,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path not in {"/api/exchange/order/preview", "/api/exchange/order/submit",
                              "/api/mining/switch", "/api/profit-threshold", "/api/tune",
                              "/api/noid/threads", "/api/manual-price",
-                             "/api/rig/assign", "/api/rig/check-updates", "/api/rig/upgrade",
+                             "/api/rig/assign", "/api/rig/gpu", "/api/rig/check-updates", "/api/rig/upgrade",
                              "/api/rig/notices/check", "/api/rig/notices/read", "/api/rgb"}:
             self.send_error(404)
             return
@@ -3458,6 +3487,10 @@ class Handler(BaseHTTPRequestHandler):
                 response = self.monitor.notices.check_notices()
             elif self.path == "/api/rig/notices/read":
                 response = self.monitor.notices.acknowledge_seen(body.get("seen"))
+            elif self.path == "/api/rig/gpu":
+                if set(body) != {"gpu_uuid", "action"} or not isinstance(body["gpu_uuid"], str) or not isinstance(body["action"], str) or body["action"] not in {"start", "stop"}:
+                    raise ValueError("只允许显卡 UUID 与 start/stop 操作")
+                response = self.monitor.rig.control_gpu(body["gpu_uuid"], body["action"])
             elif self.path == "/api/rig/assign":
                 response = self.monitor.rig.assign(body.get("gpu_uuid"), body.get("symbol"))
             elif self.path == "/api/rig/check-updates":

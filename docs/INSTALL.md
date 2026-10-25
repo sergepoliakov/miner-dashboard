@@ -21,7 +21,7 @@ python3 app/mining_monitor.py --check-config
 python3 app/rig_control.py --config "$HOME/.config/miner-dashboard/rig-control.json" --state-dir "$HOME/.local/state/miner-dashboard/rig-control" --check-config
 ```
 
-逐卡切换需要每个配置单元只占用一个 UUID。多卡共用矿工支持监看，逐卡切换会拒绝；统一启停使用 `systemctl --user start/stop 你的服务.service`。
+逐卡切换需要每个配置单元只占用一个 UUID。多卡共用矿工支持监看，逐卡切换会拒绝；按[逐卡配置指南](PER_GPU.md)迁移为独立服务后即可网页逐卡启停。
 
 ## 3. 用户服务
 

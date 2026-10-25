@@ -16,6 +16,10 @@
 
 先运行 `configure.py init`。`discover` 会发现当前 GPU 并创建布局；已有布局会拒绝覆盖。手动编辑 number/name，将 UUID 对应到实际安装位置。不应凭风扇/卡号猜物理身份。插槽、卡序改变后重新核对 `nvidia-smi --query-gpu=index,uuid,name,pci.bus_id --format=csv`。新增卡需显式加入配置；没有自动认领任意卡的默认规则。
 
+## 每张显卡独立启停
+
+推荐按[逐卡配置指南](PER_GPU.md)运行setup_per_gpu.py，为每张卡建立独立unit和UUID遥测映射。下方bind只用于已存在服务的基础配置。新格式gpu_uuid_services/log_by_uuid会自动随索引变化解析；旧gpu_services/log_by_gpu索引映射仍保留兼容。
+
 ## 快速绑定已有服务
 
 以**一个 UUID 一个 unit**为推荐起点。示例里的 UUID 全零为占位，必须换成本机实值，只存本机文件：
@@ -34,7 +38,7 @@ python3 scripts/configure.py bind \
 
 **稳定身份有不同职责：**功耗状态与显示排序使用 UUID。矿工选择卡的参数也应绑定 UUID，确认该矿工支持；日志侧 gpu_indices/gpu_map 使用 NVML 索引，换槽/加卡/驱动重排后要重新核对并更新，不可把旧日志索引当物理身份。未验证映射前不要通过网页切币。
 
-只启用已管理服务；不要把他人的训练/绘图服务加入白名单。多卡共用一个矿工时逐卡切换会拒绝，防止误停其他卡；统一操作用 systemd。CPU NOID 单独登记为 `kind: cpu`、`service: noid-cpu-miner.service`、`gpu_indices: []`；控制脚本可安装为 `~/.local/bin/noid-cpu-control`（将 app/noid_cpu_control.py 复制并 chmod755），矿工本身另行安装。
+只启用已管理服务；不要把他人的训练/绘图服务加入白名单。多卡共用一个矿工时逐卡切换会拒绝，防止误停其他卡；需要网页独立启停时先按逐卡指南迁移。CPU NOID 单独登记为 `kind: cpu`、`service: noid-cpu-miner.service`、`gpu_indices: []`；控制脚本可安装为 `~/.local/bin/noid-cpu-control`（将 app/noid_cpu_control.py 复制并 chmod755），矿工本身另行安装。
 
 ## 收款地址与矿池
 

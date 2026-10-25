@@ -316,6 +316,8 @@ class RigController:
             desired = {}
         if not isinstance(desired, dict):
             desired = {}
+        if not isinstance(desired.get("__last_profiles__", {}), dict):
+            desired["__last_profiles__"] = {}
         try:
             updates = json.loads((self.state_dir / "updates.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -339,6 +341,12 @@ class RigController:
                                "expected_index": self.gpus[gpu].get("index"),
                                "label": self.gpus[gpu].get("label", gpu),
                                "profiles": sorted(self.gpus[gpu]["profiles"]),
+                               "control_supported": all(self.services[unit] == [gpu] for unit in self.gpus[gpu]["profiles"].values()),
+                               "control_reason": (None if all(self.services[unit] == [gpu] for unit in self.gpus[gpu]["profiles"].values()) else
+                                                  "此卡与其他卡共用矿工；先按逐卡配置指南生成独立服务"),
+                               "resume_symbol": next((v for v in [desired.get(gpu), (desired.get("__last_profiles__") or {}).get(gpu)]
+                                                      if isinstance(v, str) and v in self.gpus[gpu]["profiles"]),
+                                                     next(iter(self.gpus[gpu]["profiles"])) if len(self.gpus[gpu]["profiles"]) == 1 else None),
                                "active_symbols": sorted(symbol for symbol, unit in self.gpus[gpu]["profiles"].items() if states[unit] == "active"),
                                "desired": desired.get(gpu),
                                "compute_owners": sorted(compute.get(gpu, set())),
@@ -346,129 +354,166 @@ class RigController:
                                "services": {unit: states[unit] for unit in self.services if gpu in self.services[unit]}}
                          for gpu in self.gpus}, "updates": updates}
 
+    def _desired_state(self):
+        try:
+            value = json.loads((self.state_dir / "desired.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return value if isinstance(value, dict) else {}
+
+    def control_gpu(self, gpu_uuid, action):
+        """Explicit idempotent start/stop, retaining the last selected coin atomically."""
+        self._require_config()
+        if gpu_uuid not in self.gpus or action not in {"start", "stop"}:
+            raise ValueError("Unknown GPU or action")
+        with self._locked():
+            if action == "stop":
+                return self._assign_locked(gpu_uuid, "STOP")
+            profiles = self.gpus[gpu_uuid]["profiles"]
+            active = [symbol for symbol, unit in profiles.items() if self._status(unit) == "active"]
+            if len(active) > 1:
+                raise RigError("Multiple miners active on GPU")
+            desired = self._desired_state()
+            last = desired.get("__last_profiles__", {})
+            previous = last.get(gpu_uuid) if isinstance(last, dict) else None
+            choices = [*active, desired.get(gpu_uuid), previous]
+            symbol = next((value for value in choices if isinstance(value, str) and value in profiles), None)
+            if symbol is None and len(profiles) == 1:
+                symbol = next(iter(profiles))
+            if symbol is None:
+                raise RigError("Choose a coin before starting this GPU")
+            return self._assign_locked(gpu_uuid, symbol)
+
     def assign(self, gpu_uuid, symbol):
+        with self._locked():
+            return self._assign_locked(gpu_uuid, symbol)
+
+    def _assign_locked(self, gpu_uuid, symbol):
         self._require_config()
         if gpu_uuid not in self.gpus or symbol not in {*self.gpus[gpu_uuid]["profiles"], "STOP"}:
             raise ValueError("Unknown GPU or profile")
         target = None if symbol == "STOP" else self.gpus[gpu_uuid]["profiles"][symbol]
-        with self._locked():
-            present, compute, states = self._read_local()
-            if gpu_uuid not in present:
-                raise RigError("GPU is absent")
-            related = {unit for unit, cards in self.services.items() if gpu_uuid in cards}
-            profile_units = set(self.gpus[gpu_uuid]["profiles"].values())
-            if any(len(self.services[unit]) != 1 for unit in profile_units):
-                raise RigError("Profile uses a multi-GPU service")
-            if any(states[unit] not in {"active", "inactive", "failed"} for unit in related):
-                raise RigError("GPU service is transitioning")
-            active = {unit for unit in related if states[unit] == "active"}
-            if len(active) > 1:
-                raise RigError("Multiple miners active on GPU")
-            source = next(iter(active), None)
-            if source and source not in profile_units:
-                raise RigError("Unselectable managed service occupies GPU")
-            for unit in related - profile_units:
-                boot = self._enabled(unit)
-                if boot == "static":
-                    self._static_unlinked(unit)
-                elif boot not in {"disabled", "masked", "masked-runtime"}:
-                    raise RigError("Unselectable managed service may start at boot")
-            owners = compute.get(gpu_uuid, set())
-            if target is not None and owners - ({source} if source else set()):
-                raise RigError("GPU occupied by unknown or unrelated process")
-            if source and any(source in owners for gpu, owners in compute.items() if gpu != gpu_uuid):
-                raise RigError("Current profile process also occupies another GPU")
-            enabled = {unit: self._profile_boot(unit) for unit in profile_units}
-            if source == target:
-                try:
-                    for unit in profile_units:
-                        desired_boot = "enabled" if unit == target else "disabled"
-                        if self._profile_boot(unit) != desired_boot:
-                            self._command("enable" if desired_boot == "enabled" else "disable", unit)
-                        if self._profile_boot(unit) != desired_boot:
-                            raise RigError("Profile boot state did not change")
-                    self._save_desired(gpu_uuid, symbol)
-                    return {"status": "already_assigned", "gpu_uuid": gpu_uuid, "symbol": symbol,
-                            "mining": bool(target and owners), "pending": not bool(owners) and target is not None,
-                            "remaining_compute": bool(owners) if target is None else False}
-                except Exception as exc:
-                    restored = True
-                    for unit, state in enabled.items():
-                        try:
-                            if self._profile_boot(unit) != state:
-                                self._command("enable" if state == "enabled" else "disable", unit)
-                        except Exception:
-                            restored = False
-                    raise RigError("Boot reconciliation failed; rollback " + ("completed" if restored else "incomplete")) from exc
+        present, compute, states = self._read_local()
+        if gpu_uuid not in present and target is not None:
+            raise RigError("GPU is absent")
+        related = {unit for unit, cards in self.services.items() if gpu_uuid in cards}
+        profile_units = set(self.gpus[gpu_uuid]["profiles"].values())
+        if any(len(self.services[unit]) != 1 for unit in profile_units):
+            raise RigError("Profile uses a multi-GPU service")
+        if any(states[unit] not in {"active", "inactive", "failed"} for unit in related):
+            raise RigError("GPU service is transitioning")
+        active = {unit for unit in related if states[unit] == "active"}
+        if len(active) > 1:
+            raise RigError("Multiple miners active on GPU")
+        source = next(iter(active), None)
+        if source and source not in profile_units:
+            raise RigError("Unselectable managed service occupies GPU")
+        for unit in related - profile_units:
+            boot = self._enabled(unit)
+            if boot == "static":
+                self._static_unlinked(unit)
+            elif boot not in {"disabled", "masked", "masked-runtime"}:
+                raise RigError("Unselectable managed service may start at boot")
+        owners = compute.get(gpu_uuid, set())
+        if target is not None and owners - ({source} if source else set()):
+            raise RigError("GPU occupied by unknown or unrelated process")
+        if source and any(source in owners for gpu, owners in compute.items() if gpu != gpu_uuid):
+            raise RigError("Current profile process also occupies another GPU")
+        enabled = {unit: self._profile_boot(unit) for unit in profile_units}
+        if source == target:
             try:
-                if source:
-                    self._command("stop", source)
-                    self._wait(source, _INACTIVE)
-                    after_stop = self.probe.compute()
-                    if (target is None and any(source in row for row in after_stop.values())) or (
-                            target is not None and after_stop.get(gpu_uuid)):
-                        raise RigError("Miner process remains after stop")
-                if target:
-                    if states[target] == "failed":
-                        self._command("stop", target)
-                    self._command("start", target)
-                    self._wait(target, "active")
                 for unit in profile_units:
-                    desired = "enabled" if unit == target else "disabled"
-                    if self._profile_boot(unit) != desired:
-                        self._command("enable" if desired == "enabled" else "disable", unit)
-                    if self._profile_boot(unit) != desired:
+                    desired_boot = "enabled" if unit == target else "disabled"
+                    if self._profile_boot(unit) != desired_boot:
+                        self._command("enable" if desired_boot == "enabled" else "disable", unit)
+                    if self._profile_boot(unit) != desired_boot:
                         raise RigError("Profile boot state did not change")
-                if source and self._status(source) == "active":
-                    raise RigError("Source restarted during switch")
-                if target and self._status(target) != "active":
-                    raise RigError("Target stopped during switch")
-                after_compute = self.probe.compute()
-                owners = after_compute.get(gpu_uuid, set())
-                if target is not None and owners - {target}:
-                    raise RigError("Unexpected GPU compute process after switch")
-                if target and any(target in other for gpu, other in after_compute.items() if gpu != gpu_uuid):
-                    raise RigError("Target miner also occupies another GPU")
-                if target is None and source and any(source in other for other in after_compute.values()):
-                    raise RigError("Stopped miner still occupies a GPU")
-                if any(self._status(unit) != state for unit, state in states.items() if unit not in related):
-                    raise RigError("Another GPU service changed during switch")
-                self._save_desired(gpu_uuid, symbol)
-                return {"status": "assigned", "gpu_uuid": gpu_uuid, "symbol": symbol,
-                        "mining": bool(target and owners), "pending": bool(target and not owners),
+                self._save_desired(gpu_uuid, symbol, next((s for s,u in self.gpus[gpu_uuid]["profiles"].items() if u == source), None))
+                return {"status": "already_assigned", "gpu_uuid": gpu_uuid, "symbol": symbol,
+                        "mining": bool(target and owners), "pending": not bool(owners) and target is not None,
                         "remaining_compute": bool(owners) if target is None else False}
             except Exception as exc:
-                errors = []
-                try:
-                    if target and self._status(target) == "active":
-                        self._command("stop", target)
-                        self._wait(target, _INACTIVE)
-                except Exception:
-                    errors.append("target service stop failed")
-                try:
-                    if source and self._status(source) != "active":
-                        self._command("start", source)
-                        self._wait(source, "active")
-                except Exception:
-                    errors.append("source service restart failed")
+                restored = True
                 for unit, state in enabled.items():
                     try:
                         if self._profile_boot(unit) != state:
                             self._command("enable" if state == "enabled" else "disable", unit)
-                            if self._profile_boot(unit) != state:
-                                raise RigError("Boot restoration did not take effect")
                     except Exception:
-                        errors.append("boot state restoration failed")
-                raise RigError("Assignment failed; rollback " + ("incomplete" if errors else "completed")) from exc
-
-    def _save_desired(self, gpu_uuid, symbol):
+                        restored = False
+                raise RigError("Boot reconciliation failed; rollback " + ("completed" if restored else "incomplete")) from exc
         try:
-            desired = json.loads((self.state_dir / "desired.json").read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            desired = {}
-        if not isinstance(desired, dict):
-            desired = {}
+            if source:
+                self._command("stop", source)
+                self._wait(source, _INACTIVE)
+                after_stop = self.probe.compute()
+                if (target is None and any(source in row for row in after_stop.values())) or (
+                        target is not None and after_stop.get(gpu_uuid)):
+                    raise RigError("Miner process remains after stop")
+            if target:
+                if states[target] == "failed":
+                    self._command("stop", target)
+                self._command("start", target)
+                self._wait(target, "active")
+            for unit in profile_units:
+                desired = "enabled" if unit == target else "disabled"
+                if self._profile_boot(unit) != desired:
+                    self._command("enable" if desired == "enabled" else "disable", unit)
+                if self._profile_boot(unit) != desired:
+                    raise RigError("Profile boot state did not change")
+            if source and self._status(source) == "active":
+                raise RigError("Source restarted during switch")
+            if target and self._status(target) != "active":
+                raise RigError("Target stopped during switch")
+            after_compute = self.probe.compute()
+            owners = after_compute.get(gpu_uuid, set())
+            if target is not None and owners - {target}:
+                raise RigError("Unexpected GPU compute process after switch")
+            if target and any(target in other for gpu, other in after_compute.items() if gpu != gpu_uuid):
+                raise RigError("Target miner also occupies another GPU")
+            if target is None and source and any(source in other for other in after_compute.values()):
+                raise RigError("Stopped miner still occupies a GPU")
+            if any(self._status(unit) != state for unit, state in states.items() if unit not in related):
+                raise RigError("Another GPU service changed during switch")
+            self._save_desired(gpu_uuid, symbol, next((s for s,u in self.gpus[gpu_uuid]["profiles"].items() if u == source), None))
+            return {"status": "assigned", "gpu_uuid": gpu_uuid, "symbol": symbol,
+                    "mining": bool(target and owners), "pending": bool(target and not owners),
+                    "remaining_compute": bool(owners) if target is None else False}
+        except Exception as exc:
+            errors = []
+            try:
+                if target and self._status(target) == "active":
+                    self._command("stop", target)
+                    self._wait(target, _INACTIVE)
+            except Exception:
+                errors.append("target service stop failed")
+            try:
+                if source and self._status(source) != "active":
+                    self._command("start", source)
+                    self._wait(source, "active")
+            except Exception:
+                errors.append("source service restart failed")
+            for unit, state in enabled.items():
+                try:
+                    if self._profile_boot(unit) != state:
+                        self._command("enable" if state == "enabled" else "disable", unit)
+                        if self._profile_boot(unit) != state:
+                            raise RigError("Boot restoration did not take effect")
+                except Exception:
+                    errors.append("boot state restoration failed")
+            raise RigError("Assignment failed; rollback " + ("incomplete" if errors else "completed")) from exc
+
+    def _save_desired(self, gpu_uuid, symbol, previous_symbol=None):
+        desired = self._desired_state()
+        last = desired.get("__last_profiles__", {})
+        last = dict(last) if isinstance(last, dict) else {}
+        if symbol != "STOP":
+            last[gpu_uuid] = symbol
+        else:
+            previous = previous_symbol or desired.get(gpu_uuid)
+            if isinstance(previous, str) and previous in self.gpus[gpu_uuid]["profiles"]:
+                last[gpu_uuid] = previous
         desired[gpu_uuid] = symbol
+        desired["__last_profiles__"] = last
         self._atomic_json("desired.json", desired)
 
     @staticmethod

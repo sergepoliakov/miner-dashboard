@@ -385,8 +385,8 @@
       <section id="view-control" class="view page">
         <div class="page-grid">
           <article class="card sec">
-            <div class="sec-head"><h2>逐卡选择币种</h2><p id="rig-control-state">正在连接控制服务</p></div>
-            <p class="hint">点击币种后只切换这一张卡，并保存开机启动选择。未登记的币种需先完成驱动、矿工和收款配置；发现其他计算任务时会拦截切换。</p>
+            <div class="sec-head"><h2>逐卡启动与停止</h2><p id="rig-control-state">正在连接控制服务</p></div>
+            <p class="hint">每张卡可单独启动或停止；停止会保存为下次开机继续停挖，启动沿用上次币种。多币种卡可先选择币种。未登记的币种需先完成驱动、矿工和收款配置；发现其他计算任务时会拦截切换。</p>
             <div id="rig-operation" class="tune-result" role="status" aria-live="polite"></div>
           </article>
           <div id="rig-control-gpus" class="rig-grid"></div>
@@ -1522,16 +1522,34 @@
         '开机选择：' + (info.desired || '沿用已启用的服务') + ((info.compute_owners || []).some(owner => !(owner in (info.services || {}))) ? ' · 有其他计算任务，切换将被拦截' : '');
       const actions = card.querySelector('.rig-actions');
       const profiles = Array.isArray(info.profiles) ? info.profiles : Object.keys(info.profiles || {});
-      sync(actions, [...profiles, 'STOP'], x => x, symbol => {
-        const button = el('button', 'ui-button', symbol === 'STOP' ? '停止挖矿' : '改挖 ' + symbol);
-        button.type = 'button'; button.addEventListener('click', () => rigAction('/api/rig/assign', {gpu_uuid:uuid, symbol}, '正在处理 ' + gpuTitle((last?.gpus || []).find(g => g.uuid === uuid) || {uuid}) + '…'));
-        return button;
-      }, (button, symbol) => {
-        const selected = symbol !== 'STOP' && active.includes(symbol);
-        button.classList.toggle('selected', selected);
-        button.textContent = symbol === 'STOP' ? '停止挖矿' : selected ? symbol + ' 运行中' : '改挖 ' + symbol;
-        const foreign = (info.compute_owners || []).some(owner => !(owner in (info.services || {})));
-        button.disabled = rigBusy || offline || !rigData?.csrf_token || !info.present || selected || (foreign && symbol !== 'STOP') || Date.now() - rigReadAt > 15000;
+      const supported = info.control_supported === true;
+      if (!supported && info.control_reason) card.querySelector('p').textContent += '\n' + info.control_reason;
+      const fresh = () => !rigBusy && !offline && last?.controls_enabled !== false && !!rigData?.csrf_token && Date.now()-rigReadAt<=15000;
+      sync(actions, ['start','stop',...profiles.map(symbol=>'coin:'+symbol)], x=>x, key=>{
+        const button=el('button','ui-button');button.type='button';button.dataset.gpuAction=key;
+        button.addEventListener('click',()=>{
+          if (key==='start'||key==='stop') rigAction('/api/rig/gpu',{gpu_uuid:uuid,action:key},'正在'+(key==='start'?'启动':'停止')+gpuTitle((last?.gpus||[]).find(g=>g.uuid===uuid)||{uuid})+'…');
+          else rigAction('/api/rig/assign',{gpu_uuid:uuid,symbol:key.slice(5)},'正在切换本卡币种…');
+        });return button;
+      },(button,key)=>{
+        const foreign=(info.compute_owners||[]).some(owner=>!(owner in (info.services||{})));
+        const running=services.length>0;
+        button.classList.remove('selected');
+        if (key==='start') {
+          button.textContent=running?'本卡运行中':'启动本卡';
+          button.disabled=!fresh()||!supported||!info.present||running||foreign||!info.resume_symbol;
+          button.title=!supported?(info.control_reason||'需要独立单卡服务'):!info.resume_symbol?'请先选择币种':'';
+        } else if (key==='stop') {
+          button.textContent=running?'停止本卡':'本卡已停止';
+          button.disabled=!fresh()||!supported||(!running&&info.desired==='STOP');
+          button.title=supported?'仅停止本卡矿工，并保存下次开机停挖状态':info.control_reason||'';
+        } else {
+          const symbol=key.slice(5), selected=active.includes(symbol);
+          button.textContent=selected?symbol+' 运行中':'选择 '+symbol;
+          button.classList.toggle('selected',selected);
+          button.hidden=profiles.length===1;
+          button.disabled=!fresh()||!supported||!info.present||selected||foreign;
+        }
       });
     }
     function renderRig() {
@@ -1539,7 +1557,7 @@
       renderRgb();
       $('rig-control-state').textContent = d.configured ? (d.label || '本机控制') + ' · 按 GPU 身份绑定' : d.error || '未配置逐卡控制，先登记这台机器的 GPU 和矿工服务';
       sync($('rig-control-gpus'), displayRigEntries(d), x => x[0], rigCard, drawRigCard);
-      $('rig-update-check').disabled = rigBusy || offline || !d.configured || !d.csrf_token;
+      $('rig-update-check').disabled = rigBusy || offline || last?.controls_enabled === false || !d.configured || !d.csrf_token;
       const updates = d.updates?.miners || d.updates || {};
       const rows = Object.entries(updates).filter(([, value]) => value && typeof value === 'object' && !Array.isArray(value));
       const list = $('rig-update-list');
@@ -1559,7 +1577,7 @@
     function renderPoolNotices() {
       const notices = rigData?.notices || {}, rows = Object.entries(notices);
       const unread = rows.reduce((n,[,row]) => n + (row.new || []).length, 0);
-      const canWrite = !rigBusy && !offline && !!rigData?.csrf_token;
+      const canWrite = !rigBusy && !offline && last?.controls_enabled !== false && !!rigData?.csrf_token;
       $('pool-notice-check').disabled = !canWrite;
       $('pool-notice-read').disabled = !canWrite || !unread;
       $('pool-notice-summary').textContent = rows.length ? (unread ? unread + ' 条未读更新。确认阅读后再标已读。' : '没有未读更新；以下为已获取的官方历史公告。') : '公告尚未完成首次同步。';
@@ -1590,7 +1608,7 @@
       try {
         const response = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':rigData.csrf_token}, body:JSON.stringify(body)});
         const result = await response.json(); if (!response.ok) throw new Error(result.error || 'HTTP ' + response.status);
-        $('rig-operation').textContent = result.message || (result.pending || result.pending_gpus?.length ? '服务已启动，显卡仍在等待计算任务；请继续核对算力和新份额。' : result.symbol === 'STOP' ? '受控矿工已停止并禁用开机启动。' + (result.remaining_compute ? ' 其他计算任务继续保留。' : '') : path.endsWith('/notices/check') ? '矿池公告检查完成，来源状态见下方。' : path.endsWith('/notices/read') ? '当前已知公告已标为已读。' : path.endsWith('check-updates') ? '官方版本检查完成。' : path.endsWith('upgrade') ? (result.restarted_services?.length === 0 ? '已安装 ' + (result.tag || '新版本') + '；相关矿工保持停止。' : '软件启动检查完成，请继续核对算力和新份额。') : '服务与开机选择已处理，请在总览核对算力和新份额。');
+        $('rig-operation').textContent = result.message || (result.pending || result.pending_gpus?.length ? '服务已启动，显卡仍在等待计算任务；请继续核对算力和新份额。' : result.symbol === 'STOP' ? '本卡矿工已停止，已保存开机停挖；其他卡保持原状。' + (result.remaining_compute ? ' 其他计算任务继续保留。' : '') : path.endsWith('/notices/check') ? '矿池公告检查完成，来源状态见下方。' : path.endsWith('/notices/read') ? '当前已知公告已标为已读。' : path.endsWith('check-updates') ? '官方版本检查完成。' : path.endsWith('upgrade') ? (result.restarted_services?.length === 0 ? '已安装 ' + (result.tag || '新版本') + '；相关矿工保持停止。' : '软件启动检查完成，请继续核对算力和新份额。') : '服务与开机选择已处理，请在总览核对算力和新份额。');
       } catch (error) { $('rig-operation').textContent = '操作未完成：' + error.message; }
       finally { rigBusy = false; await pollRig(); await poll(); }
     }
