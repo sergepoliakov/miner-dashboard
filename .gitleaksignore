@@ -1,0 +1,4 @@
+# Exact historical findings for the public synthetic DEMO CSRF marker.
+# No real account credential is used; future lines remain scanned.
+3bed38e85f3274d8c707de80eadf9d583b308235:.github/workflows/ci.yml:curl-auth-header:32
+3bed38e85f3274d8c707de80eadf9d583b308235:.github/workflows/ci.yml:curl-auth-header:33

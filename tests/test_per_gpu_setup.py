@@ -114,3 +114,8 @@ class PerGpuSetupTests(unittest.TestCase):
         child=Mock();child.poll.return_value=None;child.pid=12345
         with patch('per_gpu_miner.os.killpg') as kill:
             terminate_child(child);kill.assert_called_once_with(12345,signal.SIGTERM)
+
+    def test_single_path_directives_are_not_quoted_and_escape_specifiers(self):
+        self.assertEqual(setup.path_value('/tmp/case with spaces/%data'),'/tmp/case with spaces/%%data')
+        for bad in ('relative','/tmp/bad\npath','/tmp/bad'+chr(92)):
+            with self.assertRaises(ValueError):setup.path_value(bad)

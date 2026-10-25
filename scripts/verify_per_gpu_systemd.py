@@ -57,6 +57,11 @@ while True:time.sleep(1)
         previous_path=os.environ.get('PATH','');previous_records=os.environ.get('MINER_CI_GPU_DIR')
         os.environ['PATH']=fixture_path;os.environ['MINER_CI_GPU_DIR']=str(records)
         probe=HostProbe()
+        # Check the main dashboard installer as well: same path-directive class.
+        import install_user
+        install_user.ROOT=root
+        user_unit=root/'ci-dashboard.service'
+        user_unit.write_text(install_user.unit('mining_monitor.py','CI syntax only','Environment=MINING_MONITOR_ALLOW_EMPTY_COINS=1'))
         def child_pid(uuid):return str(json.loads((records/(uuid+'.json')).read_text())['pid'])
         def ready(uuids_to_check):
             for _ in range(100):
@@ -65,7 +70,7 @@ while True:time.sleep(1)
                 time.sleep(.1)
             raise RuntimeError('CI miner child did not become observable')
         try:
-            subprocess.run(['systemd-analyze','--user','verify',*[str(p) for p in unit_paths]],check=True)
+            subprocess.run(['systemd-analyze','--user','verify',*[str(p) for p in unit_paths],str(user_unit)],check=True)
             ctl('daemon-reload')
             config=root/'config/rig-control.json';state=root/'state/control'
             rig=RigController(config,state,runner=run,probe=probe)

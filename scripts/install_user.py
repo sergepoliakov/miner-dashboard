@@ -11,14 +11,18 @@ from runtime_paths import CONFIG_DIR
 def unit(app,description,environment):
     # systemd quoting, including literal percent escapes.
     def q(value):return '"'+str(value).replace('\\','\\\\').replace('"','\\"').replace('%','%%')+'"'
+    root_path=str(ROOT)
+    if not root_path.startswith('/') or any(ord(c)<32 for c in root_path) or '\\' in root_path:
+        raise ValueError('Unsupported systemd working directory')
+    def argv(value): return q(value).replace('$','$$')
     return f'''[Unit]
 Description={description}
 After=network-online.target
 
 [Service]
 Type=simple
-ExecStart={q(sys.executable)} {q(ROOT/'app'/app)}
-WorkingDirectory={q(ROOT)}
+ExecStart={argv(sys.executable)} {argv(ROOT/'app'/app)}
+WorkingDirectory={root_path.replace('%','%%')}
 Environment={q('MINER_DASHBOARD_CONFIG='+str(CONFIG_DIR))}
 {environment}
 Restart=on-failure

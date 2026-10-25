@@ -29,10 +29,10 @@ jobs:
           python3 -c 'import json; d=json.load(open("/tmp/demo.json")); assert d["demo"] is True and len(d["gpus"]) == 4'
           code=$(curl --silent -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:18091/api/tune)
           test "$code" = 403
-          curl --fail --silent -H 'Origin: http://127.0.0.1:18091' -H 'X-CSRF-Token: demo-only' -H 'Content-Type: application/json' -d '{"gpu_uuid":"GPU-00000000-0000-0000-0000-000000000001","action":"stop"}' http://127.0.0.1:18091/api/rig/gpu > /tmp/demo-stop.json
+          curl --fail --silent -H 'Origin: http://127.0.0.1:18091' -H 'X-CSRF-Token: demo-only' -H 'Content-Type: application/json' -d '{"gpu_uuid":"GPU-00000000-0000-0000-0000-000000000001","action":"stop"}' http://127.0.0.1:18091/api/rig/gpu > /tmp/demo-stop.json # gitleaks:allow -- public synthetic DEMO CSRF marker, no account authentication
           curl --fail --silent http://127.0.0.1:18091/api/rig > /tmp/demo-rig.json
           python3 -c 'import json; d=json.load(open("/tmp/demo-rig.json")); assert sum(list(g["services"].values()) == ["inactive"] for g in d["gpus"].values()) == 1'
-          curl --fail --silent -H 'Origin: http://127.0.0.1:18091' -H 'X-CSRF-Token: demo-only' -H 'Content-Type: application/json' -d '{"gpu_uuid":"GPU-00000000-0000-0000-0000-000000000001","action":"start"}' http://127.0.0.1:18091/api/rig/gpu > /tmp/demo-start.json
+          curl --fail --silent -H 'Origin: http://127.0.0.1:18091' -H 'X-CSRF-Token: demo-only' -H 'Content-Type: application/json' -d '{"gpu_uuid":"GPU-00000000-0000-0000-0000-000000000001","action":"start"}' http://127.0.0.1:18091/api/rig/gpu > /tmp/demo-start.json # gitleaks:allow -- public synthetic DEMO CSRF marker, no account authentication
           python3 -c 'import json; assert json.load(open("/tmp/demo-start.json"))["symbol"] == "PRL"'
 
       - name: Isolated system installer on disposable Linux runner

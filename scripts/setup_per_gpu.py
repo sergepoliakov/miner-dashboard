@@ -13,6 +13,13 @@ def quote(value):
     if any(ord(c)<32 for c in str(value)):raise ValueError('Control character in unit field')
     return '"'+str(value).replace('\\','\\\\').replace('"','\\"').replace('%','%%').replace('$','$$')+'"'
 
+def path_value(value):
+    # Single path directives are not shell/ExecStart words; quotes are literal.
+    text=str(value)
+    if not text.startswith('/') or any(ord(c)<32 for c in text) or '\\' in text:
+        raise ValueError('Unsupported systemd path')
+    return text.replace('%','%%')
+
 def plan(symbol,profile_path,selected,gpus,config_dir=CONFIG_DIR,state_dir=STATE_DIR,unit_dir=None):
     if not re.fullmatch(r'[A-Z0-9]{2,12}',symbol):raise ValueError('Invalid symbol')
     if not selected or len(set(selected))!=len(selected) or any(not UUID.fullmatch(u) or u not in gpus for u in selected):raise ValueError('Choose unique present GPU UUIDs')
@@ -29,15 +36,15 @@ After=network-online.target
 [Service]
 Type=simple
 ExecStart={quote(sys.executable)} {quote(ROOT/'app/per_gpu_miner.py')} --profile {quote(profile_path)} --uuid {quote(uuid)}
-WorkingDirectory={quote(cwd)}
+WorkingDirectory={path_value(cwd)}
 Restart=on-failure
 RestartSec=10
 KillMode=control-group
 TimeoutStopSec=20
 NoNewPrivileges=yes
 UMask=0077
-StandardOutput=append:{quote(log)}
-StandardError=append:{quote(log)}
+StandardOutput=append:{path_value(log)}
+StandardError=append:{path_value(log)}
 [Install]
 WantedBy=default.target
 '''
