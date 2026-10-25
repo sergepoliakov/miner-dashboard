@@ -28,12 +28,13 @@ AUTH_FILE = Path(os.environ.get('MINING_WEB_AUTH_FILE', str(CONFIG_DIR / 'web-au
 SESSION_FILE = Path(os.environ.get('MINING_WEB_SESSION_FILE', str(STATE_DIR / 'sessions.sqlite3')))
 COOKIE = '__Host-miner_session'
 TTL = 14 * 86400
-READ = {'/', '/index.html', '/api/status', '/api/rig', '/api/history', '/api/rgb',
+READ = {'/', '/index.html', '/api/status', '/api/rig', '/api/history', '/api/rgb', '/api/mining-profiles',
         '/api/thermal-log', '/api/alert-log', '/gpu_fans_strip.jpg', '/gpu_fans_strip.mp4'}
 WRITE = {'/api/exchange/order/preview', '/api/exchange/order/submit', '/api/mining/switch',
          '/api/profit-threshold', '/api/tune', '/api/noid/threads', '/api/manual-price',
          '/api/rig/assign', '/api/rig/gpu', '/api/rig/check-updates', '/api/rig/upgrade',
-         '/api/rig/notices/check', '/api/rig/notices/read', '/api/rgb'}
+         '/api/rig/notices/check', '/api/rig/notices/read', '/api/rgb',
+         '/api/mining-profiles/save', '/api/mining-profiles/apply'}
 OPENER = build_opener(ProxyHandler({}))
 RATE_LOCK = threading.Lock()
 ATTEMPTS = {}
@@ -201,7 +202,7 @@ class Handler(BaseHTTPRequestHandler):
             headers.update({'Origin': UPSTREAM_URL, 'Content-Type': 'application/json',
                             'X-CSRF-Token': self.headers.get('X-CSRF-Token', '')})
         request = Request(UPSTREAM_URL + self.path, data=body, headers=headers, method=method)
-        try: response = OPENER.open(request, timeout=25)
+        try: response = OPENER.open(request, timeout=90 if self.path == '/api/mining-profiles/apply' else 25)
         except HTTPError as error: response = error
         with response:
             payload = response.read(32 * 1024 * 1024 + 1)

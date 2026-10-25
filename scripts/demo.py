@@ -25,8 +25,10 @@ class SimulatedHost:
         action,name=args[2:4]
         if action=='is-active':return subprocess.CompletedProcess(args,0,self.states[name]+'\n','')
         if action=='is-enabled':return subprocess.CompletedProcess(args,0,self.boot[name]+'\n','')
-        if action in {'start','stop'}:self.states[name]='active' if action=='start' else 'inactive'
-        elif action in {'enable','disable'}:self.boot[name]='enabled' if action=='enable' else 'disabled'
+        if action in {'start','stop'}:
+            for unit_name in args[3:]:self.states[unit_name]='active' if action=='start' else 'inactive'
+        elif action in {'enable','disable'}:
+            for unit_name in args[3:]:self.boot[unit_name]='enabled' if action=='enable' else 'disabled'
         else:raise ValueError('Unsupported simulated command')
         return subprocess.CompletedProcess(args,0,'','')
 HOST=SimulatedHost()
@@ -56,6 +58,12 @@ from rig_control import RigController
 RIG=Path(PRIVATE.name)/'rig.json'
 RIG.write_text(json.dumps({'gpus':{uuid(i):{'label':f'GPU {i+1} DEMO','profiles':{'PRL':unit(i)}} for i in range(4)},'managed_services':{unit(i):[uuid(i)] for i in range(4)},'miners':{}}))
 monitor.rig=RigController(RIG,Path(PRIVATE.name)/'control',runner=HOST.run,probe=HOST)
+PAYOUT_SOURCE=Path(PRIVATE.name)/'simulated-miner.json'
+PAYOUT_SOURCE.write_text(json.dumps({'wallet':'DEMO_NOT_CONNECTED','worker':'rig-01','power_limit':280}));PAYOUT_SOURCE.chmod(0o600)
+PAYOUT_REGISTRY=Path(PRIVATE.name)/'payout-registry.json'
+PAYOUT_REGISTRY.write_text(json.dumps({'providers':{'PRL':{'name':'Pearl','pool':'Pearlhash · DEMO（不连接）','services':[unit(i) for i in range(4)],'files':[{'path':str(PAYOUT_SOURCE),'fields':[{'path':['wallet'],'template':'{address}'},{'path':['worker'],'template':'{worker}'}]}]}}}));PAYOUT_REGISTRY.chmod(0o600)
+from mining_profiles import MiningProfiles, ProfileError
+monitor.mining_profiles=MiningProfiles(PAYOUT_REGISTRY,Path(PRIVATE.name)/'payout-state/profiles.json',lambda:monitor.rig)
 monitor.tuning_status=lambda:{'ok':True,'gpus':[dict(index=g['index'],uuid=g['uuid'],clock={'current_mhz':g['clock'],'hw_max_mhz':3000,'locked_max_mhz':None,'step_mhz':50},power={'draw_w':g['power'],'limit_w':280,'default_w':320,'min_w':150,'max_w':320,'step_w':10}) for g in cards()],'fans':[],'errors':[]}
 monitor.system_status=lambda:{'uptime_seconds':86400,'load_1m':1.8,'cpu_threads':16,'memory_total_gb':32,'memory_available_gb':24,'disk_free_gb':380,'disk_free_pct':76,'reboot_required':False}
 
@@ -78,7 +86,7 @@ def snapshot():
     d['exchange_enabled']=True
     d['exchange']={'public_api':{'state':'unavailable'},'diagnosis':'DEMO：未连接交易所；所有账户数据均为空，禁止真实下单。','trade_status':'停用','csrf_token':'demo-only','pairs':[],'trading_enabled':False}
     d['alerts']=[{'id':'demo','level':'info','title':'DEMO 合成数据','detail':'无显卡/钱包/交易所连接','since':now}]
-    d['controls_enabled']=True  # UI preview only; every POST is rejected below.
+    d['controls_enabled']=True  # Only isolated fake-host GPU/payout mutations are enabled.
     d['demo']=True
     return d
 
@@ -99,22 +107,28 @@ class Handler(BaseHTTPRequestHandler):
         if path=='/api/status':return self.reply(snapshot())
         if path=='/api/history':return self.reply(history())
         if path=='/api/rig':return self.reply({**monitor.rig.snapshot(),'csrf_token':'demo-only','notices':{}})
+        if path=='/api/mining-profiles':return self.reply({**monitor.mining_profiles.snapshot(),'controls_enabled':True})
         if path=='/api/rgb':return self.reply(STYLE)
         if path in ('/api/alert-log','/api/thermal-log'):return self.reply({'events':[],'entries':[]})
         return self.reply({'error':'demo_not_found'},404)
     def do_POST(self):
         # Only the isolated fake host can change. Hardware/trading mutations remain forbidden.
-        if self.path!='/api/rig/gpu':return self.reply({'error':'DEMO 禁止真实硬件、交易与其他写操作'},403)
+        if self.path not in {'/api/rig/gpu','/api/mining-profiles/save','/api/mining-profiles/apply'}:return self.reply({'error':'DEMO 禁止真实硬件、交易与其他写操作'},403)
         length=self.headers.get('Content-Length','')
         if (self.headers.get('Origin')!='http://'+self.headers.get('Host','') or self.headers.get('X-CSRF-Token')!='demo-only'):
             return self.reply({'error':'DEMO 来源或会话校验失败'},403)
         if not length.isdecimal() or not 1<=int(length)<=4096 or self.headers.get('Content-Type')!='application/json':return self.reply({'error':'Bad body'},400)
         try:
             body=json.loads(self.rfile.read(int(length)))
-            if not isinstance(body,dict) or set(body)!={'gpu_uuid','action'} or not all(isinstance(v,str) for v in body.values()):raise ValueError('Invalid control request')
-            with DEMO_LOCK:result=monitor.rig.control_gpu(body['gpu_uuid'],body['action'])
+            with DEMO_LOCK:
+                if self.path=='/api/rig/gpu':
+                    if not isinstance(body,dict) or set(body)!={'gpu_uuid','action'} or not all(isinstance(v,str) for v in body.values()):raise ValueError('Invalid control request')
+                    result=monitor.rig.control_gpu(body['gpu_uuid'],body['action'])
+                elif self.path.endswith('/save'):result=monitor.mining_profiles.save(body)
+                else:result=monitor.mining_profiles.apply(body)
             return self.reply({**result,'demo':True})
-        except (ValueError,RuntimeError):return self.reply({'error':'无效的模拟显卡操作'},400)
+        except ProfileError as error:return self.reply({'error':str(error)},409)
+        except (ValueError,RuntimeError) as error:return self.reply({'error':str(error) if self.path.startswith('/api/mining-profiles/') else '无效的模拟显卡操作'},400)
     def log_message(self,*a):pass
 
 def main():

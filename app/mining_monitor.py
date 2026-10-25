@@ -27,6 +27,7 @@ from urllib.request import ProxyHandler, Request, build_opener
 
 from runtime_paths import CONFIG_DIR, STATE_DIR
 from rig_control import RigController
+from mining_profiles import MiningProfiles
 from rgb_control import snapshot as rgb_snapshot, update_style as update_rgb_style
 from gpu_display import decorate_gpus, display_slots
 from pool_notices import NoticeChecker
@@ -1444,6 +1445,9 @@ class Monitor:
         self.noid_lock = threading.Lock()
         self.cpu_sample = None
         self.state_dir = Path(state_dir) if state_dir else DEFAULT_STATE_DIR
+        self.mining_profiles = MiningProfiles(
+            Path(os.environ.get("MINING_PAYOUT_CONFIG", CONFIG_DIR / "mining-profiles.json")),
+            self.state_dir / "mining-profiles" / "profiles.json", lambda: self.rig, lambda: self.configs)
         self.notices = NoticeChecker(self.state_dir / "rig-control")
         self.thermal_log_path = self.state_dir / "thermal-monitor.jsonl"
         self.operation_log_path = self.state_dir / "mining-switch.jsonl"
@@ -1652,6 +1656,10 @@ class Monitor:
                 rows = [json.loads(line) for line in tail]
         except (OSError, json.JSONDecodeError):
             rows = []
+        coin = next((c for c in getattr(self, 'configs', []) if c.get('symbol') == 'TSC'), {})
+        if '{address}' in (coin.get('earnings') or {}).get('url', ''):
+            expected = self.account_source_fingerprint('TSC', 'earnings')
+            rows = [row for row in rows if isinstance(row, dict) and row.get('account_fingerprint') == expected]
         last_reset = max((index for index, row in enumerate(rows) if isinstance(row, dict) and row.get("reset")), default=-1)
         rows = [row for row in rows[last_reset + 1:] if isinstance(row, dict)
                 and isinstance(row.get("timestamp"), (int, float)) and not isinstance(row.get("timestamp"), bool)
@@ -1952,7 +1960,7 @@ class Monitor:
                 yield_status = daily_data.get("status", "24小时样本采集中")
             elif (nonnegative_number(daily_data.get("coins_per_day")) is not None and service == "active" and
                     self.credit_window_matches_gpus(coin["symbol"], now, gpu_indices, gpus,
-                                                    self.feed_fingerprints.get((coin["symbol"], "earnings")))):
+                                                    self.account_source_fingerprint(coin["symbol"], "earnings"))):
                 daily = daily_data["coins_per_day"]
                 yield_status = daily_data.get("status", "正常")
             else:
@@ -1965,7 +1973,7 @@ class Monitor:
                 amount = earnings.get("credit_24h")
                 if (nonnegative_number(amount) is not None and service == "active" and
                         self.credit_window_matches_gpus(coin["symbol"], now, gpu_indices, gpus,
-                                                        self.feed_fingerprints.get((coin["symbol"], "earnings")))):
+                                                        self.account_source_fingerprint(coin["symbol"], "earnings"))):
                     # credit 是账户合计；只有整个窗口都是同一组卡在挖，才可用作该组卡的实记。
                     daily = float(amount)
                     yield_status = "正常；同一组显卡完整近24小时账户 credit"
@@ -2271,6 +2279,15 @@ class Monitor:
         for store in (self.telemetry, self.balances, self.market):
             store.load(now)
 
+    def account_source_fingerprint(self, symbol, kind):
+        """当前收款源的摘要；换地址后不借用旧缓存或旧历史的身份。"""
+        coin = next((c for c in getattr(self, 'configs', []) if c.get('symbol') == symbol), {})
+        config = coin.get(kind) or {}
+        if '{address}' in config.get('url', ''):
+            url, _ = feed_url(coin, config)
+            return hashlib.sha256(url.encode()).hexdigest() if url else 'unresolved'
+        return self.feed_fingerprints.get((symbol, kind))
+
     def observed_yield(self, symbol, now, current_rate=None, window=PROFIT_WINDOW_SECONDS, minimum=OBSERVED_MIN_SECONDS,
                        warmup=0):
         """按矿池账户累计值（待付＋已付）在近 24 小时里创出的新高算产出，合计等于首尾对账。
@@ -2288,8 +2305,13 @@ class Monitor:
         warmup 是开挖（或采样中断后重新开挖）之后不计入的秒数：按最近一段份额分奖励的矿池，头一两个小时
         入账是爬坡的，记进去会把日产低估一半。
         """
+        coin = next((c for c in getattr(self, 'configs', []) if c.get('symbol') == symbol), {})
+        kind = 'account' if coin.get('account') else 'earnings'
+        scoped = '{address}' in (coin.get(kind) or {}).get('url', '')
+        expected_source = self.account_source_fingerprint(symbol, kind) if scoped else None
         rows = [row for row in self.balances.snapshot()
-                if row.get("s") == symbol and finite_number(row.get("p")) is not None]
+                if row.get("s") == symbol and finite_number(row.get("p")) is not None
+                and (not scoped or row.get('i') == expected_source)]
         if len(rows) < 2 or now - rows[-1]["t"] > 4 * BALANCE_INTERVAL:
             return None
         cutoff = rows[-1]["t"] - window
@@ -2459,7 +2481,7 @@ class Monitor:
                         assignments[project["symbol"]] = uuids
                         kind = "account" if any(c["symbol"] == project["symbol"] and c.get("account")
                                                 for c in self.configs) else "earnings"
-                        fingerprint = self.feed_fingerprints.get((project["symbol"], kind))
+                        fingerprint = self.account_source_fingerprint(project["symbol"], kind)
                         if fingerprint:
                             sources[project["symbol"]] = fingerprint
             self.telemetry.append({
@@ -2484,7 +2506,7 @@ class Monitor:
                     kind = "account" if any(c["symbol"] == symbol and c.get("account") for c in self.configs) else "earnings"
                     self.balances.append({"t": round(now, 1), "s": symbol,
                                           "p": balance["accruing"], "d": balance.get("paid"),
-                                          "i": self.feed_fingerprints.get((symbol, kind))})
+                                          "i": self.account_source_fingerprint(symbol, kind)})
                     self.history_marks["balance"] = now
                     economics = project.get("economics") or {}
                     recent, theoretical = economics.get("recent"), economics.get("theoretical_coins_per_day")
@@ -2513,6 +2535,10 @@ class Monitor:
         value, config = feeds.get((coin["symbol"], kind)), coin.get(kind)
         if not config or not isinstance(value, dict):
             return None
+        if '{address}' in config.get('url', ''):
+            current_url, _ = feed_url(coin, config)
+            if not current_url or value.get('_source_fingerprint') != hashlib.sha256(current_url.encode()).hexdigest():
+                return None  # 换收款地址后，旧账户缓存不能当作新账户数据
         if now - value.get("fetched_at", 0) > feed_max_age(config, kind, active):
             return None
         if kind == "price" and "source_at" in value and \
@@ -2521,7 +2547,7 @@ class Monitor:
         if kind == "network" and "source_at" in value and \
                 now - value["source_at"] > config.get("max_source_age_seconds", NETWORK_SOURCE_MAX_AGE):
             return None  # 上游自己的时间戳停了：数据源卡住，不当现值用
-        return value
+        return {k: v for k, v in value.items() if k != '_source_fingerprint'} if '_source_fingerprint' in value else value
 
     @staticmethod
     def _cpu_contribution(coin, noid):
@@ -2759,14 +2785,14 @@ class Monitor:
                     if active and balance and balance.get("recordable") else None)
         if (symbol == "TSC" and legacy_earnings and legacy_earnings.get("mode") == "settled" and
                 not self.credit_window_matches_gpus(symbol, now, gpu_indices, ctx["gpus"],
-                                                    self.feed_fingerprints.get((symbol, "earnings")))):
+                                                    self.account_source_fingerprint(symbol, "earnings"))):
             observed = None  # Tiger Pool 是账户合计；窗口混卡或物理卡身份不明时不标为当前卡组实记
         # credit 是账户合计。历史逐分钟记录必须证明整段都由当前这组卡在挖；
         # 单/多卡切换、并行别的币、旧格式缺卡号或采样中断时，不把混合流水冒充该组合实记。
         if (observed is None and active and legacy_earnings and legacy_earnings.get("mode") == "returned_credits" and
                 legacy_earnings.get("credit_24h_covered") and nonnegative_number(legacy_earnings.get("credit_24h")) is not None and
                 self.credit_window_matches_gpus(symbol, now, gpu_indices, ctx["gpus"],
-                                                self.feed_fingerprints.get((symbol, "earnings")))):
+                                                self.account_source_fingerprint(symbol, "earnings"))):
             observed = {"coins_per_day": float(legacy_earnings["credit_24h"]), "window_seconds": PROFIT_WINDOW_SECONDS,
                         "full": True, "scale": 1.0}
         # 近 6 小时的实记：全网算力快涨快跌时 24 小时均值是滞后的，换币比较看这个
@@ -3188,8 +3214,14 @@ class Monitor:
                         fetched[url] = fetch_json(url)
                     value = parsers[kind](fetched[url], config, fetched_at)
                     if value is not None:
-                        fingerprint = hashlib.sha256(url.encode("utf-8")).hexdigest() if kind in {"account", "earnings"} else None
+                        if '{address}' in config.get('url', '') and feed_url(coin, config)[0] != url:
+                            continue  # 应用期间旧地址的在途请求已过期
+                        fingerprint = hashlib.sha256(url.encode("utf-8")).hexdigest() if kind in {"account", "earnings"} or '{address}' in config.get('url', '') else None
+                        if fingerprint:
+                            value = {**value, '_source_fingerprint': fingerprint}
                         with self.lock:
+                            if '{address}' in config.get('url', '') and feed_url(coin, config)[0] != url:
+                                continue
                             self.feeds[key] = value
                             if fingerprint:
                                 self.feed_fingerprints[key] = fingerprint
@@ -3463,7 +3495,8 @@ class Handler(BaseHTTPRequestHandler):
                              "/api/mining/switch", "/api/profit-threshold", "/api/tune",
                              "/api/noid/threads", "/api/manual-price",
                              "/api/rig/assign", "/api/rig/gpu", "/api/rig/check-updates", "/api/rig/upgrade",
-                             "/api/rig/notices/check", "/api/rig/notices/read", "/api/rgb"}:
+                             "/api/rig/notices/check", "/api/rig/notices/read", "/api/rgb",
+                             "/api/mining-profiles/save", "/api/mining-profiles/apply"}:
             self.send_error(404)
             return
         if not self._peer_is_owner():
@@ -3493,6 +3526,20 @@ class Handler(BaseHTTPRequestHandler):
                 response = self.monitor.rig.control_gpu(body["gpu_uuid"], body["action"])
             elif self.path == "/api/rig/assign":
                 response = self.monitor.rig.assign(body.get("gpu_uuid"), body.get("symbol"))
+            elif self.path == "/api/mining-profiles/save":
+                response = self.monitor.mining_profiles.save(body)
+            elif self.path == "/api/mining-profiles/apply":
+                response = self.monitor.mining_profiles.apply(body)
+                if response.get('payout_changed'):
+                    with self.monitor.lock:
+                        for coin in self.monitor.configs:
+                            if coin.get('symbol') != body['symbol']: continue
+                            for kind in FEED_KINDS:
+                                if '{address}' not in (coin.get(kind) or {}).get('url', ''): continue
+                                key = (body['symbol'], kind)
+                                for cache in [self.monitor.feeds, self.monitor.feed_attempts, self.monitor.feed_failures,
+                                              self.monitor.feed_errors, self.monitor.feed_fingerprints]:
+                                    cache.pop(key, None)
             elif self.path == "/api/rig/check-updates":
                 response = self.monitor.rig.check_updates()
             elif self.path == "/api/rig/upgrade":
@@ -3548,6 +3595,14 @@ class Handler(BaseHTTPRequestHandler):
         elif route.path == "/api/rgb":
             self._json_response(200, rgb_snapshot())
             return
+        elif route.path == "/api/mining-profiles":
+            if not self._peer_is_owner():
+                return self._json_response(403, {"error": "仅允许本机监控账户读取收款设置"})
+            try:
+                return self._json_response(200, {**self.monitor.mining_profiles.snapshot(),
+                    "controls_enabled": os.environ.get("MINER_DASHBOARD_CONTROLS") == "1"})
+            except (OSError, ValueError, RuntimeError):
+                return self._json_response(503, {"error": "收款配置暂不可读取，请核对私有配置"})
         elif route.path == "/api/rig":
             try:
                 snapshot = self.monitor.rig.snapshot()

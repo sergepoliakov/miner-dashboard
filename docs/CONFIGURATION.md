@@ -57,3 +57,7 @@ python3 scripts/configure.py bind \
 ## 更新适配器
 
 rig-control.json 的 miners 默认空，不会自动更新未知程序。源码实现 WildRig GitHub、QTC、NOID 等有界下载/校验逻辑；启用前阅读对应 `_update_config` schema，填写自己的 versions_dir/current_link/healthcheck 等绝对路径并核验供应方。签名公钥 SHA256 pin 属于公开信任根，不应当作秘密删掉或随意绕过。第三方矿工不在仓库内，不默认接受其许可条款。
+
+## 收款地址与 worker
+
+按币种选择钱包、保存草稿和显式应用的界面，以及私有适配器的完整配置见 [钱包地址与矿工身份](PAYOUTS.md)。未登记矿工只保存草稿；SafeTrade API 继续独立绑定。

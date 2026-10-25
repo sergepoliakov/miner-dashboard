@@ -1,6 +1,6 @@
 # 绑定 SafeTrade 交易所
 
-当前只有 **SafeTrade** 适配器。Binance、OKX 等没有实现；矿工钱包绑定与交易所 API 绑定是两件独立的事。可以只看矿工/行情，完全不接交易所。
+当前只有 **SafeTrade** 适配器。Binance、OKX 等没有实现；矿工钱包绑定与交易所 API 绑定是两件独立的事。可以只看矿工/行情，完全不接交易所。收款地址在[矿池与收款](PAYOUTS.md)设置；选择 SafeTrade 地址来源只是标注，不会绑定 API。
 
 实现参考 [SafeTrade 官方 API 说明](https://safetrade.com/api) 与 [官方 example-client](https://github.com/safetrade-exchange/example-client)。BASE为 `https://safe.trade/api/v2`，签名为 nonce + API key 的 HMAC-SHA256。交易所接口、交易对和地区可用性会变化，需以官方当时的账户页面/API为准。
 
