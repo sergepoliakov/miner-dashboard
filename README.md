@@ -4,7 +4,7 @@
 
 从真实自用矿机系统整理出的独立开源版。**仓库没有运行中的钱包、交易所密钥、登录密码、私人域名、GPU 身份或收益历史。下图全部由合成 DEMO 数据生成。**
 
-[![CI](https://github.com/sergepoliakov/miner-dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/sergepoliakov/miner-dashboard/actions/workflows/ci.yml)
+[![CI](https://github.com/sergepoliakov/miner-dashboard/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sergepoliakov/miner-dashboard/actions/workflows/ci.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 ![DEMO 总览：合成显卡、算力、温度、功耗与收益](docs/images/overview.jpg)
