@@ -21,3 +21,6 @@ backups/
 *auth*.json
 !examples/*.example.json
 .DS_Store
+
+# Local promotional/source videos are not part of the public software release.
+/video/

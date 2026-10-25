@@ -14,7 +14,7 @@
 
 `python3 scripts/check_privacy.py` 检查常见私有路径、内网地址、GPU身份、密钥模式与运行文件。它不替代secret扫描器或人工审图。发布时还应使用 [Gitleaks](https://github.com/gitleaks/gitleaks) 对工作树与Git历史运行 `gitleaks dir . --redact`、`gitleaks git . --redact`；只查看不含原文的定位报告。
 
-.gitignore仅作辅助，显式force-add仍可提交敏感文件。不要复制自己的config、state、备份、原始日志、浏览器profile或钱包进入clone。新增示例要用合成数据，新图必须重跑DEMO。提交前核对 `git diff --cached` 和追踪文件列表。
+.gitignore仅作辅助，显式force-add仍可提交敏感文件。不要复制自己的config、state、备份、原始日志、浏览器profile或钱包进入clone。新增示例要用合成数据，新图必须重跑DEMO。提交前核对 `git diff --cached` 和追踪文件列表；发布包从显式允许的 Git 文件重新导出，不能把工作目录整体打包。宣传视频、真实截图及本机过程目录不属于源码发布。新截图取自本仓库独立 DEMO，账户字段保持空白，保留可见 DEMO 标记。
 
 ## 报告问题
 

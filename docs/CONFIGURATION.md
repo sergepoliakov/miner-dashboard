@@ -12,6 +12,7 @@
 | market-public.json | 仅关注、未在挖的币种行情（数组）；不需要钱包 |
 | active-gpus.json | 可选 excluded_gpu_uuids 与 exclusion_reasons；只影响显示，不切断供电 |
 | rgb.json | RGB enabled/color，程序原子保存；不可配置呼吸周期 |
+| mining-profiles.json | 可选收款适配器白名单，包含本机矿工字段/服务登记；私有600文件 |
 | web-auth.json | 密码哈希、会话签名随机量；私有600文件 |
 
 先运行 `configure.py init`。`discover` 会发现当前 GPU 并创建布局；已有布局会拒绝覆盖。手动编辑 number/name，将 UUID 对应到实际安装位置。不应凭风扇/卡号猜物理身份。插槽、卡序改变后重新核对 `nvidia-smi --query-gpu=index,uuid,name,pci.bus_id --format=csv`。新增卡需显式加入配置；没有自动认领任意卡的默认规则。

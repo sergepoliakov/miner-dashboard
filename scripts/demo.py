@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 sergepoliakov
 """Synthetic, loopback-only demo. No miner, GPU, wallet or exchange is touched."""
-import argparse, json, math, os, sys, tempfile, time, subprocess, threading
+import argparse, copy, json, math, os, sys, tempfile, time, subprocess, threading
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 # Set all paths BEFORE importing app modules. A demo never reads a real profile.
@@ -83,6 +83,14 @@ def snapshot():
                        gross_cny_per_day=gross/0.14,electricity_cny_per_day=electricity_cny,gpu_count=count,fx_cny_to_usd=.14,bases=['DEMO 合成数据'])
     p['network']={'hashrate':52e18,'hashrate_unit':'H/s','change_24h_pct':-3.2,'change_basis':'DEMO 较24小时前','yield_index':1.4e-14,'yield_index_change_24h_pct':5.5,'block_reward':2000,'block_seconds':160,'my_share_pct':0.00155,'source':'DEMO 合成全网','fetched_at':now,'noisy':False,'smoothed':False,'volatile':False}
     p['economics'].update(power_w=watts,net_cny_per_gpu_per_day=net/0.14/count if count else None,guide_cny_per_gpu_per_day=net/0.14/count if count else None,guide_usd_per_gpu_per_day=net/count if count else None,guide_basis='DEMO 合成值',missing=[])
+    d['market_projects']=[]
+    for symbol,name,price,color in [('QTC','Quantus',74.5,'#bf9af7'),('NOID','NOID',.41,'#80cbc4'),('CSD','Chain Solution',.063,'#e5c17b'),('TSC','TensorCash',5.34,'#8fb8ec')]:
+        item=copy.deepcopy(p)
+        item.update(symbol=symbol,name=name,active=False,watch_only=True,gpu_indices=[],devices=[],service='market-only',color=color,balance=None)
+        item['price'].update(value=price,source='DEMO 合成报价')
+        item['local'].update(total=None,gpu=None,per_gpu={},status='仅行情')
+        item['signal']={'level':'steady','label':'平稳','reasons':['DEMO 合成数据，不代表真实行情']}
+        d['market_projects'].append(item)
     d['exchange_enabled']=True
     d['exchange']={'public_api':{'state':'unavailable'},'diagnosis':'DEMO：未连接交易所；所有账户数据均为空，禁止真实下单。','trade_status':'停用','csrf_token':'demo-only','pairs':[],'trading_enabled':False}
     d['alerts']=[{'id':'demo','level':'info','title':'DEMO 合成数据','detail':'无显卡/钱包/交易所连接','since':now}]

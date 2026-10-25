@@ -64,11 +64,15 @@ MINING_MONITOR_ALLOW_EMPTY_COINS=1 python3 app/mining_monitor.py
 
 ## 界面
 
+新版采用系统字体、深色分组卡片、独立图表和窄屏布局。以下五张截图均重新运行本仓库 DEMO 生成，行情、算力与收益都是合成数据；收款地址、使用者和 worker 输入保持空白。
+
 ![DEMO 每张显卡独立启动与停止](docs/images/control.jpg)
 
 ![DEMO 调节与 RGB 选择](docs/images/tuning.jpg)
 
 ![DEMO 行情雷达](docs/images/radar.jpg)
+
+![DEMO 矿池与收款：当前生效与草稿分开显示，地址为空](docs/images/wallets.jpg)
 
 页面为简体中文，支持窄屏布局。显卡显示名称与编号通过 UUID 绑定；数字编号与 NVIDIA 临时索引分开。
 
@@ -90,6 +94,7 @@ MINING_MONITOR_ALLOW_EMPTY_COINS=1 python3 app/mining_monitor.py
 - [安装 / 升级 / 卸载 / 重启验收](docs/INSTALL.md)
 - [配置、日志解析、GPU 固定顺序和矿池收款](docs/CONFIGURATION.md)
 - [远程 HTTPS 与 SSH](docs/REMOTE_ACCESS.md)
+- [钱包地址、矿工身份与收款适配器](docs/PAYOUTS.md)
 - [SafeTrade 账户绑定与交易边界](docs/EXCHANGE.md)
 - [RGB 支持与硬件配置](docs/RGB.md)
 - [架构与排错](docs/ARCHITECTURE.md)
@@ -105,7 +110,7 @@ python3 -m compileall -q app scripts
 
 ## English quick start
 
-A self-hosted Linux/NVIDIA mining dashboard with per-GPU telemetry, systemd miner control, optional power/clock restoration, a market radar, fixed-phase RGB color control, and a password-authenticated HTTPS gateway. Run `python3 scripts/demo.py` for an entirely synthetic, loopback-only demo with no dependencies beyond Python 3.11+. Per-GPU start/stop buttons alter simulated state only. See the Chinese deployment guides above. SafeTrade is optional and read-only by default; live trading is unverified. No miners, wallets, credentials, or private deployment history are bundled.
+A self-hosted Linux/NVIDIA mining dashboard with per-GPU telemetry, systemd miner control, optional power/clock restoration, a market radar, fixed-phase RGB color control, and a password-authenticated HTTPS gateway. Run `python3 scripts/demo.py` for an entirely synthetic, loopback-only demo with no dependencies beyond Python 3.11+. Per-GPU start/stop and payout drafts alter simulated state only. The refreshed UI includes five synthetic market entries and empty wallet fields. See the Chinese deployment guides above. SafeTrade is optional and read-only by default; live trading is unverified. No miners, wallets, credentials, or private deployment history are bundled.
 
 ## 许可证
 
