@@ -32,6 +32,10 @@ jobs:
       - name: Isolated system installer on disposable Linux runner
         if: matrix.python-version == '3.12'
         run: |
+          # Only this disposable CI VM: GitHub makes /opt tool-cache writable.
+          # Production installer correctly refuses writable root ancestors.
+          sudo chown root:root /opt /usr/local /usr/local/sbin
+          sudo chmod go-w /opt /usr/local /usr/local/sbin
           sudo install -d -m 700 /root/miner-dashboard-release
           sudo cp -R app scripts requirements-rgb.txt /root/miner-dashboard-release/
           sudo chown -R root:root /root/miner-dashboard-release

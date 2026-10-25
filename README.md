@@ -35,7 +35,7 @@ cd miner-dashboard
 python3 scripts/demo.py
 ```
 
-打开 **http://127.0.0.1:18091**。不需要显卡、钱包、交易所账号或管理员权限。DEMO 的操作按钮不会执行任何写入；所有 POST 均拒绝。退出用 `Ctrl+C`。
+打开 **[本机 DEMO](http://127.0.0.1:18091)**。不需要显卡、钱包、交易所账号或管理员权限。DEMO 的操作按钮不会执行任何写入；所有 POST 均拒绝。退出用 `Ctrl+C`。
 
 ## 接到自己的矿机
 
@@ -48,7 +48,7 @@ python3 scripts/configure.py discover
 MINING_MONITOR_ALLOW_EMPTY_COINS=1 python3 app/mining_monitor.py
 ```
 
-打开 http://127.0.0.1:8091。所有私有配置放在 `~/.config/miner-dashboard/`，历史放在 `~/.local/state/miner-dashboard/`，均在 Git 克隆目录之外。
+打开 [本机监控](http://127.0.0.1:8091)。所有私有配置放在 `~/.config/miner-dashboard/`，历史放在 `~/.local/state/miner-dashboard/`，均在 Git 克隆目录之外。
 
 接下来按 [安装与开机恢复](docs/INSTALL.md) 完成：
 
