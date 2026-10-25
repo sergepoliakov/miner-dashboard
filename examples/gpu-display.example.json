@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "slots": [
+    {
+      "number": 1,
+      "name": "Your GPU name",
+      "uuid": "GPU-00000000-0000-0000-0000-000000000001"
+    }
+  ]
+}

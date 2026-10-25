@@ -1,0 +1,16 @@
+{
+  "gpus": {
+    "GPU-00000000-0000-0000-0000-000000000001": {
+      "label": "Demo GPU",
+      "profiles": {
+        "PRL": "example-miner.service"
+      }
+    }
+  },
+  "managed_services": {
+    "example-miner.service": [
+      "GPU-00000000-0000-0000-0000-000000000001"
+    ]
+  },
+  "miners": {}
+}

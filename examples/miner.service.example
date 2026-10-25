@@ -1,0 +1,18 @@
+# Template only. Replace executable/config/log paths and validate official miner flags.
+# One GPU UUID per unit is required for per-card web control.
+[Unit]
+Description=Your GPU miner
+After=network-online.target
+[Service]
+Type=simple
+Environment=CUDA_VISIBLE_DEVICES=GPU-00000000-0000-0000-0000-000000000001
+ExecStart=/opt/YOUR_MINER/bin/miner --config /var/lib/YOUR_MINER/private-config.json
+Restart=on-failure
+RestartSec=10
+KillMode=control-group
+TimeoutStopSec=20
+StandardOutput=append:/var/tmp/example-miner.log
+StandardError=append:/var/tmp/example-miner.log
+UMask=0077
+[Install]
+WantedBy=default.target

@@ -1,0 +1,46 @@
+name: CI
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12', '3.13', '3.14']
+    steps:
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python3 -m compileall -q app scripts
+      - run: PYTHONPATH=app python3 -m unittest discover -s tests -v
+      - run: python3 scripts/check_privacy.py
+      - name: Synthetic demo smoke test
+        run: |
+          python3 scripts/demo.py --port 18091 &
+          demo_pid=$!
+          trap 'kill "$demo_pid"' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:18091/api/status > /tmp/demo.json; then break; fi
+            sleep 0.2
+          done
+          python3 -c 'import json; d=json.load(open("/tmp/demo.json")); assert d["demo"] is True and len(d["gpus"]) == 4'
+          code=$(curl --silent -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:18091/api/tune)
+          test "$code" = 403
+
+      - name: Isolated system installer on disposable Linux runner
+        if: matrix.python-version == '3.12'
+        run: |
+          sudo install -d -m 700 /root/miner-dashboard-release
+          sudo cp -R app scripts requirements-rgb.txt /root/miner-dashboard-release/
+          sudo chown -R root:root /root/miner-dashboard-release
+          sudo chmod -R go-w /root/miner-dashboard-release
+          sudo /usr/bin/python3 /root/miner-dashboard-release/scripts/install_system.py --user "$USER" --tuning --exchange --rgb
+          test "$(stat -c '%u:%a' /opt/miner-dashboard/app/rgb_daemon.py)" = '0:644'
+          test "$(stat -c '%u:%a' /usr/local/sbin/gpu-tune)" = '0:755'
+          test "$(stat -c '%a' /var/lib/safetrade-api)" = '700'
+          if sudo /usr/bin/python3 /root/miner-dashboard-release/scripts/install_system.py --user "$USER" --tuning; then
+            echo 'Installer incorrectly overwrote an existing installation'
+            exit 1
+          fi

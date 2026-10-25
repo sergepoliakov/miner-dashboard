@@ -1,0 +1,2 @@
+# Optional; use pip --require-hashes --no-deps. Core/demo use Python stdlib only.
+openrgb-python==0.3.8 --hash=sha256:6e61a92a2119c7cdab4e615302a0707cd8d8f12e3f001067a6b5fae0c5e7e7b2

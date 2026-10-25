@@ -1,0 +1,19 @@
+[
+  {
+    "symbol": "PRL",
+    "name": "Pearl",
+    "algorithm": "pearlhash",
+    "color": "#86a9f2",
+    "rate": {
+      "unit": "TH/s"
+    },
+    "price": {
+      "url": "https://api.coingecko.com/api/v3/simple/price?ids=pearl-2&vs_currencies=usd&include_24hr_change=true",
+      "value_path": "pearl-2.usd",
+      "change_24h_path": "pearl-2.usd_24h_change",
+      "source": "CoinGecko",
+      "max_age_seconds": 600
+    },
+    "market_note": "Verify the asset ID and quote freshness before use."
+  }
+]

@@ -1,0 +1,17 @@
+{
+  "symbol": "PRL",
+  "name": "Pearl",
+  "service": "example-miner.service",
+  "gpu_indices": [
+    0
+  ],
+  "algorithm": "pearlhash",
+  "rate": {
+    "log": "/var/tmp/example-miner.log",
+    "unit": "TH/s",
+    "gpu_regex": "GPU\\s*#?(?P<gpu>\\d+).*?(?P<value>[\\d.]+)\\s*TH/s",
+    "total_regex": "Total.*?(?P<value>[\\d.]+)\\s*TH/s",
+    "table_start_regex": "Speed",
+    "max_age_seconds": 120
+  }
+}

@@ -1,0 +1,1680 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Miner Dashboard · 矿机监控</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #060a11; --panel: #0d131e; --panel2: #121a28; --inset: #0a0f18; --line: #1c2637; --line2: #2a3850;
+      --text: #e9eef7; --muted: #92a0b6; --dim: #627089;
+      --good: #3ddc97; --warn: #ffb454; --bad: #ff6b6b; --info: #7fb0ff; --opp: #5ee6c8;
+      --accent: #8b7bff; --r: 16px;
+      font-family: "Ubuntu", "Noto Sans CJK SC", "PingFang SC", system-ui, -apple-system, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html, body { height: 100%; }
+    body { margin: 0; overflow: hidden; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+    button, input, select { font: inherit; color: inherit; }
+    a { color: #b3c2ff; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .num { font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+    .app { height: 100vh; display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 12px; padding: 14px 20px 16px;
+      background: radial-gradient(1100px 460px at 88% -12%, #17243d66, transparent 62%), radial-gradient(900px 420px at -5% 112%, #1c163966, transparent 60%), var(--bg); }
+
+    /* 顶栏 */
+    .top { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 18px; }
+    .brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
+    .pulse { position: relative; width: 12px; height: 12px; flex: none; border-radius: 50%; background: var(--good); box-shadow: 0 0 14px #3ddc9780; }
+    .pulse::after { content: ""; position: absolute; inset: -6px; border: 1px solid currentColor; border-radius: 50%; color: var(--good); opacity: 0; animation: ping 2.4s ease-out infinite; }
+    .pulse.warn { background: var(--warn); box-shadow: 0 0 14px #ffb45480; } .pulse.warn::after { color: var(--warn); }
+    .pulse.bad { background: var(--bad); box-shadow: 0 0 14px #ff6b6b80; } .pulse.bad::after { color: var(--bad); }
+    @keyframes ping { 0% { transform: scale(.5); opacity: .7; } 100% { transform: scale(1.5); opacity: 0; } }
+    .brand-title { font-size: 22px; font-weight: 720; letter-spacing: -.02em; white-space: nowrap; }
+    .brand-sub { color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tabs { display: flex; gap: 4px; padding: 4px; background: var(--inset); border: 1px solid var(--line); border-radius: 14px; }
+    .tabs button { min-width: 104px; min-height: 44px; padding: 0 18px; border: 0; border-radius: 10px; background: transparent; color: var(--muted); font-size: 15px; font-weight: 620; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+    .tabs button.on { background: linear-gradient(180deg, #25304a, #1b2438); color: var(--text); box-shadow: inset 0 0 0 1px #3a4a6a; }
+    .tabs button .badge { display: inline-block; min-width: 18px; margin-left: 6px; padding: 0 5px; border-radius: 9px; background: var(--warn); color: #1c1305; font-size: 11px; font-weight: 760; line-height: 18px; }
+    .clock { text-align: right; }
+    .clock-time { font-size: 22px; font-weight: 680; }
+    .fresh { color: var(--muted); font-size: 12.5px; }
+    .fresh.late { color: var(--warn); }
+
+    /* 提醒条 */
+    .alerts { display: flex; align-items: center; gap: 8px; min-height: 44px; overflow: hidden; }
+    .alert-list { flex: 1; min-width: 0; display: flex; gap: 8px; overflow: hidden; }
+    .chip { display: inline-flex; align-items: center; gap: 8px; flex: none; max-width: 520px; min-height: 40px; padding: 0 14px; border: 1px solid var(--line2); border-radius: 11px; background: var(--panel); font-size: 14px; font-weight: 600; white-space: nowrap; cursor: pointer; touch-action: manipulation; }
+    .chip > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+    .chip::before { content: ""; width: 8px; height: 8px; flex: none; border-radius: 50%; background: currentColor; }
+    .chip.critical { color: #ffd0d0; border-color: #8f3c44; background: #3a171c; animation: flash 1.6s ease-in-out infinite; }
+    .chip.warning { color: #ffe0ae; border-color: #7a5a2c; background: #2e2313; }
+    .chip.opportunity { color: #c9fff1; border-color: #2c7a68; background: #10291f; }
+    .chip.info { color: #c5d6f5; border-color: #2f4263; background: #101a2b; }
+    .chip.ok { color: #b8f7dc; border-color: #245c47; background: #0e211a; cursor: default; }
+    @keyframes flash { 50% { box-shadow: 0 0 22px #ff6b6b55; } }
+    .ghost { min-height: 40px; padding: 0 14px; border: 1px solid var(--line2); border-radius: 11px; background: transparent; color: var(--muted); font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; touch-action: manipulation; }
+    .ghost:hover { color: var(--text); border-color: #45597e; }
+
+    /* 视图 */
+    main { min-height: 0; }
+    .view { display: none; height: 100%; min-height: 0; }
+    .view.on { display: grid; }
+    .card { min-width: 0; min-height: 0; background: linear-gradient(160deg, #101827, #0c121c); border: 1px solid var(--line); border-radius: var(--r); }
+    .label { color: var(--muted); font-size: 13px; font-weight: 620; letter-spacing: .05em; }
+    .hint { color: var(--muted); font-size: 13px; line-height: 1.5; }
+    .tag { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border: 1px solid var(--line2); border-radius: 7px; color: var(--muted); font-size: 12px; font-weight: 620; white-space: nowrap; }
+    .tag.run { color: #b8f7dc; border-color: #2a6b54; background: #10261e; }
+    .tag.stop { color: var(--dim); }
+    .tag.good { color: #c9fff1; border-color: #2c7a68; background: #10291f; }
+    .tag.bad { color: #ffd9b0; border-color: #7a5a2c; background: #2e2313; }
+    .tag.mixed { color: #d7ccff; border-color: #4d4490; background: #1b1838; }
+    .tag.soft { color: var(--muted); }
+    .up { color: var(--good); } .down { color: var(--bad); } .muted { color: var(--muted); }
+    body.offline .live { opacity: .32; }
+
+    /* 总览 */
+    #view-overview { grid-template-rows: auto minmax(0, 1.22fr) minmax(0, 1fr); gap: 12px; }
+    .kpis { display: grid; grid-template-columns: 1.35fr 1fr 1fr 1fr 1fr; gap: 12px; }
+    .kpi { padding: 14px 18px 13px; display: flex; flex-direction: column; gap: 3px; }
+    .kpi-value { font-size: 34px; font-weight: 730; line-height: 1.12; white-space: nowrap; }
+    .kpi-value small { margin-left: 6px; color: var(--muted); font-size: 15px; font-weight: 600; letter-spacing: 0; }
+    .kpi-sub { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .kpi.net { background: linear-gradient(150deg, #12261f, #0c141a 70%); border-color: #24503f; }
+    .kpi.net .kpi-value { color: #8ff5cf; font-size: 40px; }
+    .kpi.net.loss .kpi-value { color: #ffb0a0; }
+    .projects { display: grid; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); gap: 12px; min-height: 0; }
+    .project { position: relative; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 10px; padding: 16px 20px 14px; overflow: hidden; }
+    .project::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; background: linear-gradient(90deg, var(--accent), transparent 85%); }
+    .project::after { content: ""; position: absolute; top: -120px; right: -80px; width: 320px; height: 320px; border-radius: 50%; background: var(--accent); opacity: .055; filter: blur(30px); pointer-events: none; }
+    .p-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .p-dot { width: 10px; height: 10px; flex: none; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+    .p-symbol { font-size: 22px; font-weight: 740; letter-spacing: -.01em; }
+    .p-name { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .p-chips { display: flex; gap: 6px; margin-left: auto; flex: none; }
+    .project { container-type: inline-size; }
+    .p-body { display: grid; grid-template-columns: minmax(0, .82fr) minmax(0, 1.18fr); gap: 22px; min-height: 0; }
+    @container (max-width: 760px) { .p-body { grid-template-columns: minmax(0, 1fr); gap: 10px; } .p-rate { font-size: 44px; } .project .spark { min-height: 30px; } .project .spark-cap { display: none; } }
+    .p-hero { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+    .p-rate { font-size: 54px; font-weight: 740; line-height: 1.02; white-space: nowrap; }
+    .p-rate small { margin-left: 8px; color: var(--muted); font-size: 20px; font-weight: 620; letter-spacing: 0; }
+    .p-rate-cards { display: flex; gap: 14px; flex-wrap: wrap; align-items: baseline; }
+    .p-rate-gpu-chip { display: inline-flex; align-items: baseline; gap: 6px; font-size: 34px; font-weight: 740; line-height: 1.1; }
+    .p-rate-gpu-chip .chip-lbl { font-size: 13px; font-weight: 700; color: #fff; background: rgba(255, 143, 177, 0.22); border: 1px solid rgba(255, 143, 177, 0.45); padding: 2px 7px; border-radius: 6px; letter-spacing: .02em; }
+    .p-rate-gpu-chip .chip-unit { font-size: 16px; color: var(--muted); font-weight: 600; margin-left: 2px; }
+    .p-rate-sub { margin-top: 4px; color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .spark { flex: 1; min-height: 46px; margin-top: 8px; }
+    .spark svg { display: block; width: 100%; height: 100%; }
+    .spark-cap { display: flex; justify-content: space-between; color: var(--dim); font-size: 11.5px; }
+    .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 14px; align-content: start; }
+    .stat { min-width: 0; }
+    .stat b { display: block; margin-top: 3px; font-size: 23px; font-weight: 700; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .stat i { display: block; margin-top: 3px; color: var(--muted); font-size: 13px; font-style: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .stat.hl b { color: #8ff5cf; }
+    .stat.hl.loose b { color: #b6c2d6; }
+    .stat.hl.hypo b { color: #b6c2d6; font-style: italic; }
+    .stat.hl.loss b { color: #ffb0a0; }
+    .p-foot { display: grid; gap: 6px; }
+    .payout { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; font-size: 13px; }
+    .bar { position: relative; height: 8px; border-radius: 5px; background: #1a2333; overflow: hidden; }
+    .bar > span { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 5px; background: linear-gradient(90deg, var(--accent), #ffffffaa); transition: width .6s; }
+    .netline { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .days { display: flex; align-items: end; gap: 3px; height: 34px; }
+    .days span { flex: 1; min-height: 2px; border-radius: 2px 2px 0 0; background: var(--accent); opacity: .55; }
+    .days span.today { opacity: .28; }
+
+    .devices { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 12px; min-height: 0; }
+    .contents { display: contents; }
+    .dev { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 8px; padding: 14px 18px 12px; }
+    .dev-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+    .dev-title { font-size: 16px; font-weight: 700; white-space: nowrap; }
+    .dev-title em { margin-left: 8px; color: var(--muted); font-size: 13px; font-style: normal; font-weight: 600; }
+    .dev-model { color: var(--dim); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .temps { display: flex; align-items: end; gap: 22px; }
+    .temp b { font-size: 38px; font-weight: 730; line-height: 1; }
+    .temp b small { font-size: 17px; font-weight: 620; color: var(--muted); }
+    .temp i { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; font-style: normal; }
+    .temp.warning b { color: var(--warn); } .temp.critical b { color: var(--bad); }
+    .fanwrap { margin-left: auto; display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 13px; }
+    .fan { width: 30px; height: 30px; border-radius: 50%; background: conic-gradient(from 0deg, #3b4a66 0 12%, transparent 0 25%, #3b4a66 0 37%, transparent 0 50%, #3b4a66 0 62%, transparent 0 75%, #3b4a66 0 87%, transparent 0); mask: radial-gradient(circle, transparent 3px, #000 4px); -webkit-mask: radial-gradient(circle, transparent 3px, #000 4px); animation: spin var(--spin, 2s) linear infinite; }
+    .fan.still { animation: none; opacity: .5; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .meters { display: grid; gap: 7px; align-content: center; }
+    .meter { display: grid; grid-template-columns: 62px minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: 13px; }
+    .meter span:first-child { color: var(--muted); }
+    .meter .bar > span { background: linear-gradient(90deg, #5b6f99, #9fb2da); }
+    .meter .bar.hot > span { background: linear-gradient(90deg, #b9772b, var(--warn)); }
+    .dev-foot { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; }
+    .dev .spark { min-height: 30px; margin-top: 0; }
+    .mini { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 8px; padding: 14px 18px 12px; cursor: pointer; }
+    .mini-rows { display: grid; align-content: start; gap: 6px; overflow: hidden; }
+    .mini-row { display: grid; grid-template-columns: 74px 44px minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 30px; font-size: 13.5px; }
+    .mini-row .sym { display: flex; align-items: center; gap: 7px; font-weight: 700; }
+    .mini-row .sym::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+    .mini-row .px { text-align: right; white-space: nowrap; }
+
+    /* 二级页通用 */
+    .page { grid-template-rows: minmax(0, 1fr); overflow: auto; padding-right: 4px; }
+    .page-grid { display: grid; gap: 12px; align-content: start; }
+    .sec { padding: 16px 20px 18px; }
+    .sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; margin-bottom: 12px; }
+    .sec-head h2 { margin: 0; font-size: 17px; font-weight: 700; }
+    .sec-head p { margin: 0; color: var(--muted); font-size: 12.5px; }
+    .ui-button { min-height: 42px; padding: 0 16px; border: 1px solid #4a5d80; border-radius: 10px; background: #1b2740; color: var(--text); font-size: 14px; font-weight: 620; cursor: pointer; touch-action: manipulation; }
+    .ui-button:hover:not(:disabled) { border-color: #9caef7; background: #24324f; }
+    .ui-button:disabled { color: var(--dim); border-color: var(--line2); background: transparent; cursor: not-allowed; }
+    .ui-button:focus-visible, input:focus-visible, select:focus-visible, .tabs button:focus-visible { outline: 2px solid #a5b7ff; outline-offset: 2px; }
+    input[type=text], input[type=number], input:not([type]), select { min-height: 42px; padding: 0 12px; border: 1px solid var(--line2); border-radius: 10px; background: var(--inset); }
+    input:disabled, select:disabled { opacity: .55; }
+
+    /* 调节 */
+    .tune-gpus { display: grid; grid-template-columns: repeat(auto-fit, minmax(560px, 1fr)); gap: 12px; }
+    .tune-block { display: grid; gap: 10px; }
+    .tune-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 12px 14px; background: var(--panel2); border: 1px solid var(--line); border-radius: 13px; }
+    .tune-name { flex: 1 1 200px; min-width: 0; display: grid; gap: 4px; }
+    .tune-name strong { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 16px; font-weight: 680; }
+    .tune-name small { color: var(--muted); font-size: 12.5px; line-height: 1.4; font-variant-numeric: tabular-nums; }
+    .tune-mark { padding: 2px 8px; border: 1px solid #45557a; border-radius: 7px; color: #b9c3ff; font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; }
+    .tune-mark.at-default { border-color: #2f7c64; color: #93f2ce; }
+    .tune-controls { display: flex; align-items: center; gap: 10px; }
+    .tune-btn { min-width: 64px; min-height: 58px; padding: 0 12px; border: 1px solid #5a68a8; border-radius: 13px; background: #2a3354; color: #f2f5ff; font-size: 30px; font-weight: 700; line-height: 1; cursor: pointer; touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; transition: background .12s, border-color .12s, transform .08s; }
+    .tune-btn:hover:not(:disabled) { border-color: #9caef7; background: #34406a; }
+    .tune-btn:active:not(:disabled), .tune-btn.pressed:not(:disabled) { border-color: #b3a8ff; background: #5a4fc0; transform: scale(.94); }
+    .tune-btn:disabled { border-color: #2c3547; background: #161d2b; color: #57647a; cursor: not-allowed; }
+    .tune-btn:focus-visible { outline: 2px solid #a5b7ff; outline-offset: 2px; }
+    .tune-reset { min-width: 116px; border-color: #586b79; background: #1d2b38; font-size: 15px; font-weight: 680; }
+    .tune-value { min-width: 220px; padding: 0 6px; text-align: center; font-size: 20px; font-weight: 720; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .tune-result { min-height: 20px; color: var(--muted); font-size: 13.5px; }
+    .tune-result.ok { color: #93f2ce; } .tune-result.busy { color: var(--warn); } .tune-result.error { color: #ffb0a0; }
+    .tune-warn { padding: 8px 12px; border: 1px solid #755637; border-radius: 10px; background: #33261a; color: #ffd49c; font-size: 13.5px; }
+    .fan-tune-rows { display: grid; grid-template-columns: repeat(auto-fit, minmax(560px, 1fr)); gap: 10px; }
+    .inline-form { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+    .inline-form label { color: var(--muted); font-size: 13px; }
+    .inline-form input { width: 110px; }
+
+    /* 行情雷达 */
+    .radar-grid { grid-template-columns: minmax(0, 2.1fr) minmax(360px, 1fr); }
+    .watch { display: grid; gap: 8px; align-content: start; }
+    .w-card { position: relative; padding: 10px 20px 9px 24px; overflow: hidden; }
+    .w-card::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; background: var(--accent); }
+    .w-head { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+    .w-head .reason { color: var(--muted); font-size: 13px; }
+    .w-metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px 18px; margin-top: 9px; }
+    .w-card .days { height: 22px; max-width: 480px; margin-top: 7px; }
+    .w-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 13px; }
+    .pools { display: flex; flex-wrap: wrap; gap: 6px; }
+    .pool { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px solid var(--line2); border-radius: 9px; background: var(--inset); color: var(--text); font-size: 12.5px; cursor: pointer; }
+    .pool.current { border-color: #2a6b54; }
+    .pool.avoid { border-color: #7a3c40; color: #ffb9b9; text-decoration: line-through; }
+    .pool small { color: var(--muted); }
+    .pool-note { flex-basis: 100%; color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .pool-note.open { white-space: normal; }
+    .w-price { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+    .w-price input { width: 130px; min-height: 36px; }
+    .w-price .ui-button, .w-price .ghost { min-height: 36px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    th { padding: 6px 8px; color: var(--muted); font-size: 12px; font-weight: 620; text-align: left; border-bottom: 1px solid var(--line); }
+    td { padding: 8px; border-bottom: 1px solid #141c2a; white-space: nowrap; }
+    td.r, th.r { text-align: right; }
+    tr.ours td { color: #c9fff1; font-weight: 650; }
+    tr.hypo td { color: var(--muted); }
+    td.wrap { white-space: normal; }
+
+    /* 交易所 / 系统 */
+    .exchange-status { padding: 12px 14px; border: 1px solid #7a5a2c; border-radius: 12px; background: #261d10; color: #ffe0ae; font-size: 14px; line-height: 1.55; }
+    .exchange-status.ready { border-color: #2a6b54; background: #10261e; color: #b8f7dc; }
+    .cells { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+    .cell { padding: 12px 14px; background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; }
+    .cell small { display: block; margin-bottom: 4px; color: var(--muted); font-size: 12px; }
+    .cell strong { font-size: 16px; font-weight: 650; }
+    .exchange-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin-top: 14px; }
+    .exchange-form label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; }
+    .exchange-form input, .exchange-form select { width: 180px; }
+    .exchange-result { margin-top: 10px; color: var(--muted); font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
+    .sensor-list { display: flex; flex-wrap: wrap; gap: 8px; }
+    .sensor { display: inline-flex; gap: 10px; align-items: baseline; padding: 8px 12px; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; color: var(--muted); font-size: 12.5px; }
+    .sensor strong { color: var(--text); font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; }
+    .sensor.off strong { color: var(--dim); }
+    .sys-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .wide { grid-column: 1 / -1; }
+
+    dialog { width: min(820px, calc(100vw - 28px)); max-height: min(82vh, 780px); padding: 0; border: 1px solid #46566d; border-radius: 16px; background: #0f1724; color: var(--text); box-shadow: 0 24px 80px #000a; }
+    dialog::backdrop { background: #02060dcc; backdrop-filter: blur(4px); }
+    .dialog-head { position: sticky; top: 0; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 18px; background: #0f1724; border-bottom: 1px solid var(--line2); }
+    .dialog-head h2 { margin: 0; font-size: 17px; }
+    .dialog-body { max-height: 66vh; overflow: auto; padding: 8px 18px 18px; }
+    .a-row { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+    .a-row strong { font-size: 15px; }
+    .a-row p { margin: 3px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+    .log-row { padding: 9px 0; border-bottom: 1px solid var(--line); color: var(--muted); font: 12.5px/1.55 ui-monospace, "Ubuntu Mono", Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+    /* 小窗口（经 SSH 隧道在笔记本或手机上看）改为整页滚动 */
+    @media (max-width: 1500px), (max-height: 900px) {
+      body { overflow: auto; }
+      .app { height: auto; min-height: 100vh; }
+      .view { height: auto; }
+      #view-overview { grid-template-rows: auto auto auto; }
+      .kpis { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+      .p-body { grid-template-columns: minmax(0, 1fr); }
+      .spark { height: 60px; flex: none; }
+      .radar-grid, .sys-grid { grid-template-columns: minmax(0, 1fr); }
+      .w-metrics { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+    }
+    @media (max-width: 900px) {
+      .top { grid-template-columns: minmax(0, 1fr); } .clock { text-align: left; }
+      .tabs { overflow-x: auto; } .tabs button { min-width: 84px; }
+      .projects, .devices { grid-template-columns: minmax(0, 1fr); }
+      .p-rate { font-size: 40px; } .tune-gpus, .fan-tune-rows { grid-template-columns: minmax(0, 1fr); }
+      .tune-controls { flex: 1 1 100%; flex-wrap: wrap; } .tune-value { flex: 1 1 0; min-width: 0; font-size: 17px; white-space: normal; } .tune-reset { flex: 1 1 100%; }
+      .cells { grid-template-columns: minmax(0, 1fr); }
+    }
+    .rig-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; }
+    .rig-actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:16px; }
+    .rig-actions button { min-height:52px; min-width:100px; touch-action:manipulation; }
+    .rig-actions .selected { border-color:var(--good); color:var(--good); }
+    .rig-meta { font-size:13px; line-height:1.7; overflow-wrap:anywhere; }
+    @media (prefers-reduced-motion: reduce) { .fan, .pulse::after, .chip.critical { animation: none; } }
+
+    /* Keep every device's intrinsic content inside its own grid track. */
+    #view-overview { grid-template-rows: auto auto auto; align-content: start; overflow-y: auto; }
+    .devices { grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); grid-auto-rows: minmax(300px, auto); align-content: start; }
+    .dev { grid-template-rows: auto auto minmax(56px, 1fr) auto; }
+    .mini { grid-template-rows: auto minmax(174px, 1fr) auto; }
+    .dev { grid-template-columns: minmax(0, 1fr); }
+    .dev > *, .dev-head > *, .temps > *, .meters > *, .dev-foot > * { min-width: 0; }
+    .dev-head { display: grid; grid-template-columns: minmax(0, 1fr); gap: 3px; }
+    .dev-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; white-space: normal; overflow-wrap: anywhere; }
+    .dev-title em { margin-left: 0; flex: none; }
+    .dev-model { white-space: normal; overflow-wrap: anywhere; line-height: 1.35; }
+    .temps { flex-wrap: wrap; gap: 8px 18px; }
+    .fanwrap { flex-shrink: 0; }
+    .dev-foot { flex-wrap: wrap; white-space: normal; overflow: visible; gap: 3px 10px; }
+    .dev-foot > * { overflow-wrap: anywhere; }
+    .dev .spark, .dev .spark svg { width: 100%; min-width: 0; }
+    .meter { grid-template-columns: 36px minmax(0, 1fr) auto; gap: 8px; }
+    .meter > .num { white-space: nowrap; }
+    #view-radar { grid-template-rows: auto auto; align-content: start; gap: 12px; }
+    .radar-summary { min-height: 125px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .radar-summary .card { padding: 14px 18px; }
+    .radar-summary strong { display: block; margin: 5px 0; font-size: 20px; overflow-wrap: anywhere; }
+    .w-card { --accent: #627089; }
+    .w-card.signal-good { border-color: #2c7a68; background: linear-gradient(130deg, #10291f, #0c121c 70%); }
+    .w-card.signal-bad { border-color: #755037; }
+    .w-head .tag { max-width: 100%; height: auto; min-height: 22px; white-space: normal; overflow-wrap: anywhere; }
+    .p-head { flex-wrap: wrap; }
+    .p-chips { min-width: 0; max-width: 100%; flex-wrap: wrap; }
+    .w-head .p-name, .w-head .reason { white-space: normal; overflow-wrap: anywhere; }
+    .w-metrics .stat b, .w-metrics .stat i { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+    .w-details { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+    .w-details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+    .w-details p { margin: 6px 0 0; white-space: pre-line; }
+    .pool-note { white-space: normal; }
+    .radar-grid table { table-layout: fixed; }
+    .radar-grid th, .radar-grid td { white-space: normal; overflow-wrap: anywhere; }
+    .mini { min-height: 220px; }
+    .mini-rows { overflow: visible; }
+    .mini-row { grid-template-columns: 58px 44px minmax(0, 1fr) auto; gap: 6px; }
+    @media (max-width: 900px) {
+      .radar-summary { grid-template-columns: minmax(0, 1fr); }
+      .brand-title { white-space: normal; }
+      .app { padding: 12px; }
+      .rig-grid { grid-template-columns: minmax(0, 1fr); }
+      .tabs { min-width: 0; }
+      .w-price { flex-wrap: wrap; margin-left: 0; }
+    }
+
+    .rgb-controls { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+    .rgb-picker { display:flex; align-items:center; gap:10px; }
+    .rgb-picker input { width:64px; height:42px; padding:3px; border:1px solid var(--line); border-radius:10px; background:transparent; cursor:pointer; }
+    .rgb-swatches { display:flex; gap:8px; flex-wrap:wrap; }
+    .rgb-swatches button { width:36px; height:36px; border-radius:50%; border:2px solid transparent; cursor:pointer; box-shadow:inset 0 0 0 2px #ffffff38; }
+    .rgb-swatches button.selected { outline:2px solid var(--text); outline-offset:2px; }
+    .rgb-swatches button:disabled { opacity:.4; cursor:default; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <div class="brand"><span id="rig-dot" class="pulse warn"></span><div style="min-width:0"><div class="brand-title">Miner Dashboard · <span id="rig-coins" class="live">连接中</span></div><div id="rig-sub" class="brand-sub">正在读取现场数据</div></div></div>
+      <nav class="tabs" id="tabs" aria-label="页面">
+        <button type="button" data-view="overview" class="on">总览</button>
+        <button type="button" data-view="control">挖矿控制</button>
+        <button type="button" data-view="tune">调节</button>
+        <button type="button" data-view="radar">行情雷达</button>
+        <button type="button" data-view="exchange">交易所</button>
+        <button type="button" data-view="system">系统</button>
+      </nav>
+      <div class="clock"><div id="clock" class="clock-time num">--:--:--</div><div id="fresh" class="fresh">等待现场数据</div></div>
+    </header>
+
+    <section class="alerts" role="status" aria-live="polite">
+      <div id="alert-list" class="alert-list"><span class="chip info"><span>正在连接监控服务</span></span></div>
+      <button id="alert-open" class="ghost" type="button">全部提醒</button>
+    </section>
+
+    <main>
+      <!-- 总览 -->
+      <section id="view-overview" class="view on">
+        <div class="kpis">
+          <article id="kpi-net" class="card kpi net"><div class="label">估算净收益 / 天（已扣电费）</div><div class="kpi-value num live" data-f="value">—</div><div class="kpi-sub live" data-f="sub">等待产出与币价</div></article>
+          <article id="kpi-gross" class="card kpi"><div class="label">估算毛产出 / 天</div><div class="kpi-value num live" data-f="value">—</div><div class="kpi-sub live" data-f="sub">—</div></article>
+          <article id="kpi-pending" class="card kpi"><div class="label">矿池待付 · 折合</div><div class="kpi-value num live" data-f="value">—</div><div class="kpi-sub live" data-f="sub">—</div></article>
+          <article id="kpi-power" class="card kpi"><div class="label">整机功耗 · 今日电费</div><div class="kpi-value num live" data-f="value">—</div><div class="kpi-sub live" data-f="sub">—</div></article>
+          <article id="kpi-temp" class="card kpi" style="cursor:pointer" title="查看温度日志"><div class="label">最高温度</div><div class="kpi-value num live" data-f="value">—</div><div class="kpi-sub live" data-f="sub">—</div></article>
+        </div>
+        <div id="projects" class="projects"></div>
+        <div class="devices">
+          <div id="gpu-cards" class="contents"></div>
+          <article id="cpu-card" class="card dev" hidden>
+            <div class="dev-head"><div class="dev-title">CPU <em data-f="role">—</em></div><div class="dev-model" data-f="service">—</div></div>
+            <div class="temps"><div class="temp"><b class="num live" data-f="rate">—</b><i data-f="rate-note">CPU 算力</i></div><div class="temp" data-f-level="temp"><b class="num live" data-f="temp">—</b><i>CPU 温度</i></div></div>
+            <div class="meters"><div class="meter"><span>占用</span><div class="bar"><span data-f-bar="usage"></span></div><span class="num live" data-f="usage">—</span></div>
+              <div class="meter"><span>份额</span><span class="num live" data-f="shares" style="grid-column: span 2">—</span></div></div>
+            <div class="dev-foot"><span data-f="threads">—</span><span data-f="age">—</span></div>
+          </article>
+          <article id="radar-mini" class="card mini" title="打开行情雷达">
+            <div class="dev-head"><div class="dev-title">行情雷达</div><div class="dev-model" data-f="note">关注币种</div></div>
+            <div id="mini-rows" class="mini-rows"></div>
+            <div class="dev-foot"><span data-f="board">—</span><span>点开看详情 ›</span></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="view-control" class="view page">
+        <div class="page-grid">
+          <article class="card sec">
+            <div class="sec-head"><h2>逐卡选择币种</h2><p id="rig-control-state">正在连接控制服务</p></div>
+            <p class="hint">点击币种后只切换这一张卡，并保存开机启动选择。未登记的币种需先完成驱动、矿工和收款配置；发现其他计算任务时会拦截切换。</p>
+            <div id="rig-operation" class="tune-result" role="status" aria-live="polite"></div>
+          </article>
+          <div id="rig-control-gpus" class="rig-grid"></div>
+          <article class="card sec">
+            <div class="sec-head"><h2>矿工软件更新</h2><button id="rig-update-check" class="ui-button" type="button" disabled>检查官方更新</button></div>
+            <p class="hint">校验官方文件后安装，只重启升级前正在运行的相关矿工，停止态保持停止。启动检查失败会回退；算力和新份额仍需继续核验。</p>
+            <div id="rig-update-list" class="page-grid"></div>
+            <p class="hint">软件版本每 6 小时检查；矿池公告每 15 分钟检查，首次同步建立历史基线。</p>
+          </article>
+          <article class="card sec">
+            <div class="sec-head"><h2>矿池更新提醒</h2><div class="rig-actions"><button id="pool-notice-check" class="ui-button" type="button" disabled>刷新公告</button><button id="pool-notice-read" class="ui-button" type="button" disabled>全部标为已读</button></div></div>
+            <p id="pool-notice-summary" class="hint" role="status">正在读取官方公告缓存</p>
+            <div id="pool-notice-list" class="page-grid"></div>
+          </article>
+        </div>
+      </section>
+
+      <!-- 调节 -->
+      <section id="view-tune" class="view page">
+        <div class="page-grid">
+          <article id="rgb-panel" class="card sec">
+            <div class="sec-head"><h2>RGB 选择</h2><p id="rgb-state">正在读取灯光设置</p></div>
+            <p class="hint">本机风扇与支持的显卡统一联动。开启后固定呼吸，可更换颜色或关闭灯效；设置自动保存，开机恢复。</p>
+            <div class="rgb-controls">
+              <label class="rgb-picker" for="rgb-color">灯光颜色 <input id="rgb-color" type="color" value="#004bff" aria-label="RGB 灯光颜色"></label>
+              <button id="rgb-apply" class="ui-button" type="button" disabled>应用颜色</button>
+              <button id="rgb-toggle" class="ui-button" type="button" disabled>关闭灯效</button>
+              <div class="rgb-swatches" aria-label="常用灯光颜色">
+                <button type="button" data-rgb-color="#004bff" aria-label="蓝色呼吸" title="蓝色" style="background:#004bff"></button>
+                <button type="button" data-rgb-color="#00d5ff" aria-label="青色呼吸" title="青色" style="background:#00d5ff"></button>
+                <button type="button" data-rgb-color="#8b5cf6" aria-label="紫色呼吸" title="紫色" style="background:#8b5cf6"></button>
+                <button type="button" data-rgb-color="#ff4f96" aria-label="粉色呼吸" title="粉色" style="background:#ff4f96"></button>
+                <button type="button" data-rgb-color="#21d68d" aria-label="绿色呼吸" title="绿色" style="background:#21d68d"></button>
+                <button type="button" data-rgb-color="#fff2dd" aria-label="暖白色呼吸" title="暖白色" style="background:#fff2dd"></button>
+              </div>
+            </div>
+            <div id="rgb-result" class="tune-result" role="status" aria-live="polite"></div>
+          </article>
+
+          <div id="tune-gpus" class="tune-gpus"></div>
+          <article class="card sec">
+            <div class="sec-head"><h2>风扇调速</h2><p>主板 PWM 手动占空比 · 设定保存在本机，开机后自动恢复</p></div>
+            <div id="fan-tune" class="tune-block">
+              <div id="fan-tune-rows" class="fan-tune-rows"></div>
+              <div id="fan-tune-empty" class="hint">读取中</div>
+              <div id="fan-tune-warn" class="tune-warn" role="status" hidden></div>
+              <div id="fan-tune-result" class="tune-result" role="status" aria-live="polite"></div>
+            </div>
+          </article>
+          <article id="noid-panel" class="card sec" hidden>
+            <div class="sec-head"><h2>CPU 矿工线程</h2><p id="noid-service">读取服务状态</p></div>
+            <div class="inline-form"><label for="noid-threads">线程数</label><select id="noid-threads" aria-label="CPU 矿工线程数" disabled></select><button id="noid-apply" class="ui-button" type="button" disabled>应用线程数</button><span id="noid-result" class="hint" role="status" aria-live="polite"></span></div>
+          </article>
+          <article class="card sec">
+            <div class="sec-head"><h2>换币提醒阈值</h2><p>停用币种的已校准估算，每张卡比在挖的币多出这个数才提醒</p></div>
+            <div class="inline-form"><label for="profit-threshold">差额 $/天</label><input id="profit-threshold" type="number" min="0.01" max="100" step="0.01" value="0.50" aria-label="换币提醒的每日利润差额"><button id="profit-threshold-save" class="ui-button" type="button">应用</button><span id="profit-status" class="hint" role="status" aria-live="polite"></span></div>
+            <div class="inline-form" style="margin-top:12px"><button id="switch-miner" class="ui-button" type="button" disabled hidden>等待收益对比</button><span id="profit-alert" class="hint"></span></div>
+          </article>
+        </div>
+      </section>
+
+      <!-- 行情雷达 -->
+      <section id="view-radar" class="view page">
+        <div id="radar-summary" class="radar-summary">
+          <article class="card"><span class="label">当前挖矿</span><strong data-radar="active">—</strong><span class="hint" data-radar="active-note"></span></article>
+          <article class="card"><span class="label">较昨日更好挖</span><strong data-radar="opportunity">—</strong><span class="hint">综合币价、全网算力与单位算力收益；只作关注线索</span></article>
+          <article class="card"><span class="label">行情数据覆盖</span><strong data-radar="coverage">—</strong><span class="hint" data-radar="coverage-note"></span></article>
+        </div>
+        <div class="page-grid radar-grid">
+          <div id="watch" class="watch"></div>
+          <div class="page-grid">
+            <article class="card sec">
+              <div class="sec-head"><h2>挖哪个币：每张卡每天净收益</h2><p id="compare-note">估算在采集中</p></div>
+              <table><thead><tr><th>币种</th><th class="r">每卡</th><th class="r">整套</th><th>依据</th></tr></thead><tbody id="compare-rows"></tbody></table>
+              <p class="hint" style="margin:10px 0 0">每卡＝该币估算净收益 ÷ 它占用的显卡数，已扣电费，主机估算功耗按卡分摊。在挖的币按矿池账户近 6 小时的实际记账（开挖不满 6 小时先按近 2 小时，误差更大）；停挖的币是按当下全网算的“若改挖”估算：有它自己上次实挖的“实记÷理论”比例就乘上，没有的标未校准、只当线索。出块比协议目标快、或矿池算力超过折算全网的币，取难度追平后的数；盘口薄的币按“近 1 小时中位价”、现价、盘口买一价里最低的算：一时拉高不追，已经跌下来的认。±后面是粗估的误差，差额落在误差里的不值得换。差额不到换币提醒阈值就不值得折腾；换之前先看该币项目说明，以及挖出来能不能卖得掉。</p>
+            </article>
+            <article class="card sec">
+              <div class="sec-head"><h2>全市场线索</h2><p id="board-note">WhatToMine 公开榜单</p></div>
+              <table><thead><tr><th>#</th><th>币种</th><th>算法</th><th class="r">收益指数</th><th class="r">24h 均值</th></tr></thead><tbody id="board-rows"></tbody></table>
+              <p class="hint" style="margin:10px 0 0">指数按 WhatToMine 自己的默认算力计算，只说明相对高低，不等于这台机器能挣多少；榜上的币要另查矿工、矿池和能不能卖得掉。</p>
+            </article>
+            <article class="card sec">
+              <div class="sec-head"><h2>口径</h2></div>
+              <p class="hint" style="margin:0">“更好挖 / 变难挖”看三样：全网算力、币价、以及两者合成的单位算力收益，都与 24 小时前比；全网算力是折算值的币（如 NOID）取近 6 小时中位数，与 24 小时前同样口径比。本机估算优先用矿池账户的实际记账：按账户累计值（待付＋已付）创出新高的部分算，等于首尾对账，不足 24 小时按已有时长外推并标明；没有记账时才用全网算力推理论值。停挖的币给的是“若改挖”的估算：理论值乘上它自己上次实挖时“实记÷理论”的比例（14 天内有效），没有这个比例的标“未校准”、不参与提醒。实际出块比协议目标快、或矿池算力超过按难度折算的全网时，另给难度追平后的日产，比较时用它。盘口薄的币（NOID、CSD）收益按“近 1 小时中位价”、现价和盘口买一价（数据源给得出时）里最低的估，现价照常显示。按份额窗口分奖励的矿池（CSD）开挖头 2 小时的入账不计入实记。电费按 ¥0.6/度、整机功耗按显卡板卡功耗加主机估算 90 W，非电表实测。</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- 交易所 -->
+      <section id="view-exchange" class="view page">
+        <div class="page-grid">
+          <article class="card sec">
+            <div class="sec-head"><h2>SafeTrade</h2><p>经独立代理程序访问 · 本页面不持有 API 密钥</p></div>
+            <div id="exchange-status" class="exchange-status">正在检查交易所接口</div>
+            <div class="cells">
+              <div class="cell"><small>账户余额</small><strong id="exchange-balances" class="live">待连接</strong></div>
+              <div class="cell"><small>充值到账</small><strong id="exchange-deposits" class="live">待连接</strong></div>
+              <div class="cell"><small>成交与提现记录</small><strong id="exchange-history" class="live">待连接</strong></div>
+              <div class="cell"><small>提币地址簿</small><strong id="exchange-beneficiaries" class="live">待连接</strong></div>
+            </div>
+            <div class="exchange-form">
+              <label>交易对<select id="order-market" disabled><option value="">等待交易所实时确认</option></select></label>
+              <label>卖出数量<input id="order-amount" inputmode="decimal" placeholder="输入原币数量" disabled></label>
+              <label>限价<input id="order-price" inputmode="decimal" placeholder="每枚报价" disabled></label>
+              <button id="order-preview" class="ui-button" type="button" disabled>核对限价卖单</button>
+              <button id="order-submit" class="ui-button" type="button" disabled>确认提交卖单</button>
+            </div>
+            <div id="exchange-result" class="exchange-result"></div>
+            <p class="hint" style="margin:12px 0 0">只支持在交易所实时核验过的交易对与限价卖单，不提供提现。手续费、可成交数量和实际到账以交易所回执为准。</p>
+          </article>
+          <article class="card sec">
+            <div class="sec-head"><h2>各币种去哪卖</h2><p>接口不通时在浏览器里操作</p></div>
+            <div id="market-links" class="pools"></div>
+          </article>
+        </div>
+      </section>
+
+      <!-- 系统 -->
+      <section id="view-system" class="view page">
+        <div class="page-grid sys-grid">
+          <article class="card sec">
+            <div class="sec-head"><h2>主机</h2><p id="sys-note">—</p></div>
+            <div id="sys-list" class="sensor-list">读取中</div>
+          </article>
+          <article class="card sec">
+            <div class="sec-head"><h2>温度</h2><button id="thermal-log-open" class="ghost" type="button">温度日志</button></div>
+            <div id="temperatures" class="sensor-list">读取中</div>
+            <p id="thermal-note" class="hint" style="margin:10px 0 0">预警线：核心 82/88°C · 显存 90/100°C；每 10 秒采样。</p>
+          </article>
+          <article class="card sec">
+            <div class="sec-head"><h2>主板风扇通道</h2><p>转速 RPM · 未识别通道不猜接线</p></div>
+            <div id="case-fans" class="sensor-list">读取中</div>
+          </article>
+          <article class="card sec">
+            <div class="sec-head"><h2>显卡风扇通道</h2><p>驱动不给通道与显卡的对应关系</p></div>
+            <div id="nvidia-fans" class="sensor-list">读取中</div>
+          </article>
+          <article class="card sec wide">
+            <div class="sec-head"><h2>数据源</h2><p>过期即留空，不拿旧值顶替</p></div>
+            <table><thead><tr><th>币种</th><th>数据项</th><th>来源</th><th class="r">更新</th><th>状态</th></tr></thead><tbody id="feed-rows"></tbody></table>
+          </article>
+          <article class="card sec wide">
+            <p class="hint" style="margin:0">显卡核心频率、功耗上限与风扇调速经本机 gpu-tune 执行并记入日志，其余遥测只读。整机功耗、日产出与净收益都是估算，口径写在各自旁边；矿池记账不等于交易所到账。页面版本 <span id="ui-version" class="num">—</span>，后台更新页面后会自动刷新。</p>
+          </article>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="alert-dialog" aria-labelledby="alert-dialog-title">
+    <div class="dialog-head"><h2 id="alert-dialog-title">提醒</h2><div style="display:flex;gap:8px"><button id="alert-log-toggle" class="ghost" type="button">历史记录</button><button id="alert-close" class="ui-button" type="button">关闭</button></div></div>
+    <div id="alert-body" class="dialog-body"></div>
+  </dialog>
+  <dialog id="thermal-dialog" aria-labelledby="thermal-dialog-title">
+    <div class="dialog-head"><h2 id="thermal-dialog-title">GPU 温度事件日志</h2><button id="thermal-log-close" class="ui-button" type="button">关闭</button></div>
+    <div id="thermal-log" class="dialog-body" aria-live="polite">正在读取日志…</div>
+  </dialog>
+
+  <script>
+    'use strict';
+    const $ = id => document.getElementById(id);
+    const el = (tag, cls, text) => { const node = document.createElement(tag); if (cls) node.className = cls; if (text != null) node.textContent = text; return node; };
+    // 只用于写死的页面骨架；任何来自接口的文字一律走 textContent
+    const frag = html => { const holder = document.createElement('template'); holder.innerHTML = html.trim(); return holder.content.firstElementChild; };
+    const setF = (root, name, text) => { const node = root.querySelector('[data-f="' + name + '"]'); if (node && node.textContent !== String(text)) node.textContent = text; return node; };
+    const TZ = 'Asia/Shanghai';
+    const isNum = value => typeof value === 'number' && Number.isFinite(value);
+    const fmt = (value, digits = 1) => isNum(value) ? value.toFixed(digits) : '—';
+    const sig = value => { if (!isNum(value)) return '—'; if (value === 0) return '0'; const a = Math.abs(value); return value.toFixed(a >= 1000 ? 0 : a >= 100 ? 1 : a >= 10 ? 2 : a >= 1 ? 3 : a >= .01 ? 4 : 6); };
+    const group = value => isNum(value) ? Math.round(value).toLocaleString('en-US') : '—';
+    const money = (value, mark) => { if (!isNum(value)) return '—'; if (value === 0) return mark + '0'; const a = Math.abs(value); return (value < 0 ? '−' : '') + mark + a.toFixed(a >= 1000 ? 0 : a >= .1 ? 2 : a >= .001 ? 4 : 6); };
+    const usd = value => money(value, '$'), cny = value => money(value, '¥');
+    const coinPrice = value => { if (!isNum(value)) return '—'; const a = Math.abs(value); return '$' + a.toFixed(a >= 1 ? 2 : a >= .01 ? 4 : 6); };
+    const pct = (value, digits = 0) => isNum(value) ? (value > 0 ? '+' : value < 0 ? '−' : '') + Math.abs(value).toFixed(digits) + '%' : '—';
+    const trendClass = value => !isNum(value) || Math.abs(value) < .5 ? 'muted' : value > 0 ? 'up' : 'down';
+    const fmtTime = epoch => epoch ? new Date(epoch * 1000).toLocaleTimeString('zh-CN', {hour12: false, timeZone: TZ}) : '未知';
+    const fmtDateTime = epoch => epoch ? new Date(epoch * 1000).toLocaleString('zh-CN', {hour12: false, timeZone: TZ}) : '未知';
+    const ago = epoch => { if (!isNum(epoch)) return '—'; const s = Math.max(0, Date.now() / 1000 - epoch); return s < 5 ? '刚刚' : s < 90 ? Math.round(s) + ' 秒前' : s < 5400 ? Math.round(s / 60) + ' 分钟前' : s < 172800 ? (s / 3600).toFixed(1) + ' 小时前' : Math.round(s / 86400) + ' 天前'; };
+    const span = hours => !isNum(hours) ? '—' : hours < 1 ? Math.max(1, Math.round(hours * 60)) + ' 分钟' : hours < 48 ? hours.toFixed(1) + ' 小时' : (hours / 24).toFixed(1) + ' 天';
+    const bigHash = (value, base) => { if (!isNum(value)) return '—'; const units = ['', 'k', 'M', 'G', 'T', 'P', 'E']; let i = 0; while (value >= 1000 && i < units.length - 1) { value /= 1000; i++; } return value.toFixed(value >= 100 ? 0 : value >= 10 ? 1 : 2) + ' ' + units[i] + (base || 'H/s'); };
+    const safeColor = value => /^#[0-9a-fA-F]{6}$/.test(value || '') ? value : '#8b7bff';
+
+    // 按 key 对齐子节点：只建一次，之后原地更新，避免每 4 秒重建打断触摸与输入
+    function sync(container, items, keyOf, create, update) {
+      const wanted = new Set(items.map(item => String(keyOf(item))));
+      for (const child of [...container.children]) if (!wanted.has(child.dataset.key)) child.remove();
+      items.forEach((item, position) => {
+        const key = String(keyOf(item));
+        let node = [...container.children].find(child => child.dataset.key === key);
+        if (!node) { node = create(item); node.dataset.key = key; }
+        if (container.children[position] !== node) container.insertBefore(node, container.children[position] || null);
+        update(node, item);
+      });
+    }
+
+    // 走势线：series = [{values, color, dashed, fill}]，空值断线
+    function spark(svg, series, width = 300, height = 60) {
+      const all = series.flatMap(item => item.values || []).filter(isNum);
+      svg.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
+      svg.setAttribute('preserveAspectRatio', 'none');
+      svg.replaceChildren();
+      if (all.length < 2) return false;
+      let low = Math.min(...all), high = Math.max(...all);
+      // 纵轴至少留出均值 8% 的幅度，1% 的正常抖动不会被画成大起大落
+      const middle = (high + low) / 2, band = Math.abs(middle) * .08 || 1;
+      if (high - low < band) { low = middle - band / 2; high = middle + band / 2; }
+      const pad = (high - low) * .12; low -= pad; high += pad;
+      for (const item of series) {
+        const values = item.values || [], count = values.length;
+        if (count < 2) continue;
+        let path = '', open = false, first = null, last = null;
+        values.forEach((value, index) => {
+          if (!isNum(value)) { open = false; return; }
+          const x = index / (count - 1) * width, y = height - (value - low) / (high - low) * height;
+          path += (open ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1);
+          open = true; if (first == null) first = x; last = x;
+        });
+        if (!path) continue;
+        if (item.fill && first != null) {
+          const area = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          area.setAttribute('d', path + 'L' + last.toFixed(1) + ' ' + height + 'L' + first.toFixed(1) + ' ' + height + 'Z');
+          area.setAttribute('fill', item.color); area.setAttribute('opacity', '.12'); svg.append(area);
+        }
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        line.setAttribute('d', path); line.setAttribute('fill', 'none'); line.setAttribute('stroke', item.color);
+        line.setAttribute('stroke-width', item.dashed ? '1.4' : '2'); line.setAttribute('vector-effect', 'non-scaling-stroke');
+        line.setAttribute('stroke-linejoin', 'round'); if (item.dashed) line.setAttribute('stroke-dasharray', '4 4');
+        if (item.dashed) line.setAttribute('opacity', '.7');
+        svg.append(line);
+      }
+      return true;
+    }
+    const range = values => { const nums = (values || []).filter(isNum); return nums.length ? [Math.min(...nums), Math.max(...nums)] : null; };
+
+    let last = null, history = null, offline = false;
+    const CORE_WARN = 82, CORE_CRIT = 88, MEM_WARN = 90, MEM_CRIT = 100;
+    const level = (value, warn, crit) => !isNum(value) ? '' : value >= crit ? 'critical' : value >= warn ? 'warning' : '';
+
+    // —— 页签 ——
+    let idleTimer = null;
+    function showView(name, remember = true) {
+      for (const button of $('tabs').children) button.classList.toggle('on', button.dataset.view === name);
+      for (const view of document.querySelectorAll('.view')) view.classList.toggle('on', view.id === 'view-' + name);
+      if (remember) { try { sessionStorage.setItem('view', name); } catch (error) { /* 无存储时每次回总览 */ } }
+      armIdle();
+    }
+    // 大屏没人碰 5 分钟后回到总览
+    function armIdle() {
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => { if (!document.querySelector('dialog[open]') && !['INPUT', 'SELECT'].includes(document.activeElement?.tagName)) showView('overview'); else armIdle(); }, 300000);
+    }
+    $('tabs').addEventListener('click', event => { const button = event.target.closest('button[data-view]'); if (button) showView(button.dataset.view); });
+    document.addEventListener('pointerdown', armIdle, {passive: true});
+    $('radar-mini').addEventListener('click', () => showView('radar'));
+    try { const saved = sessionStorage.getItem('view'); if (saved && $('view-' + saved)) showView(saved, false); } catch (error) { /* 忽略 */ }
+
+    // —— 提醒 ——
+    const LEVEL_NAME = {critical: '危险', warning: '注意', opportunity: '机会', info: '提示'};
+    let alertMode = 'current';
+    function renderAlerts(alerts) {
+      const list = $('alert-list');
+      if (!alerts.length) { list.replaceChildren(frag('<span class="chip ok"><span>一切正常，暂无提醒</span></span>')); }
+      else sync(list, alerts, alert => alert.id, alert => { const chip = el('button', 'chip ' + alert.level); chip.type = 'button'; chip.append(el('span')); chip.addEventListener('click', openAlerts); return chip; },
+        (chip, alert) => { chip.className = 'chip ' + alert.level; chip.lastChild.textContent = alert.title; chip.title = alert.detail; });
+      const serious = alerts.filter(alert => alert.level === 'critical' || alert.level === 'warning').length;
+      $('alert-open').textContent = alerts.length ? '全部 ' + alerts.length + ' 条' : '提醒记录';
+      if ($('alert-dialog').open && alertMode === 'current') fillAlertDialog();
+      return serious;
+    }
+    function fillAlertDialog() {
+      const body = $('alert-body'); body.replaceChildren();
+      $('alert-log-toggle').textContent = alertMode === 'current' ? '历史记录' : '当前提醒';
+      if (alertMode === 'current') {
+        const alerts = last?.alerts || [];
+        if (!alerts.length) body.append(el('p', 'hint', '当前没有提醒。'));
+        for (const alert of alerts) {
+          const row = el('div', 'a-row'); const side = el('div'); side.append(el('span', 'tag ' + ({critical: 'bad', warning: 'bad', opportunity: 'good', info: 'soft'}[alert.level]), LEVEL_NAME[alert.level]));
+          const main = el('div'); main.append(el('strong', '', alert.title), el('p', '', alert.detail + ' · 自 ' + fmtTime(alert.since)));
+          row.append(side, main); body.append(row);
+        }
+      } else {
+        body.textContent = '正在读取…';
+        fetch('/api/alert-log', {cache: 'no-store'}).then(response => response.json()).then(data => {
+          body.replaceChildren();
+          const titles = {};
+          for (const event of data.events || []) if (event.title) titles[event.id] = event.title;
+          for (const event of data.events || []) body.append(el('div', 'log-row', fmtDateTime(event.timestamp) + '  ' + (event.type === 'raised' ? '出现' : '解除') + '  ' + (event.title || titles[event.id] || event.id || '') + (event.detail ? '  ' + event.detail : '')));
+          if (!body.children.length) body.textContent = '还没有提醒记录';
+        }).catch(error => { body.textContent = '读取失败：' + error.message; });
+      }
+    }
+    function openAlerts() { alertMode = 'current'; fillAlertDialog(); if (!$('alert-dialog').open) $('alert-dialog').showModal(); }
+    $('alert-open').addEventListener('click', openAlerts);
+    $('alert-close').addEventListener('click', () => $('alert-dialog').close());
+    $('alert-log-toggle').addEventListener('click', () => { alertMode = alertMode === 'current' ? 'log' : 'current'; fillAlertDialog(); });
+
+    // 近 N 小时实记：日产已经按它算时不重复写；按最新成交价的净收益：估算用的是更低的保守价时才有
+    const recentNote = (eco, lead, unit) => eco.recent && Math.abs(eco.recent.delta_pct) >= 0.5 ? lead + '近 ' + Math.round(eco.recent.window_seconds / 3600) + ' 小时折 ' + sig(eco.recent.coins_per_day) + unit + '（' + pct(eco.recent.delta_pct) + '）' : '';
+    const marketNote = eco => (eco.at_market_price ? ' · 按最新成交价 ' + (isNum(eco.at_market_price.net_cny_per_day) ? cny(eco.at_market_price.net_cny_per_day) : usd(eco.at_market_price.net_usd_per_day)) : '') + (eco.at_current_difficulty ? ' · 按当前难度往后看 ' + (isNum(eco.at_current_difficulty.net_cny_per_day) ? cny(eco.at_current_difficulty.net_cny_per_day) : usd(eco.at_current_difficulty.net_usd_per_day)) : '');
+
+    // —— 总览：指标 ——
+    function renderKpis(data) {
+      const totals = data.totals || {}, projects = data.projects || [], power = data.power || {};
+      const net = $('kpi-net');
+      net.classList.toggle('loss', isNum(totals.net_usd_per_day) && totals.net_usd_per_day < 0);
+      if (isNum(totals.net_cny_per_day)) {
+        setF(net, 'value', cny(totals.net_cny_per_day)).append(el('small', '', usd(totals.net_usd_per_day)));
+        setF(net, 'sub', (totals.gpu_count ? totals.gpu_count + ' 张卡合计 · ' : '') + '毛 ' + cny(totals.gross_cny_per_day) + ' − 电费 ' + cny(totals.electricity_cny_per_day) + (isNum(totals.net_cny_per_day_at_market) ? ' · 按最新成交价 ' + cny(totals.net_cny_per_day_at_market) : '') + (isNum(totals.net_cny_per_day_at_difficulty) ? ' · 按当前难度往后看 ' + cny(totals.net_cny_per_day_at_difficulty) : '') + ' · ' + (totals.bases || []).join(' · '));
+      } else {
+        setF(net, 'value', '采集中');
+        setF(net, 'sub', (totals.missing || []).length ? totals.missing.join('、') + ' 还缺产出或币价' : !isNum(totals.fx_cny_to_usd) ? '等待 CNY/USD 汇率' : '等待产出与币价');
+      }
+      const gross = $('kpi-gross');
+      setF(gross, 'value', isNum(totals.gross_usd_per_day) ? usd(totals.gross_usd_per_day) : '—');
+      setF(gross, 'sub', projects.filter(p => p.active).map(p => p.symbol + ' ' + (isNum(p.economics.gross_usd_per_day) ? usd(p.economics.gross_usd_per_day) : '—')).join(' · ') || '没有在跑的项目');
+      const pending = projects.filter(p => p.balance && isNum(p.balance.pending) && p.price);
+      const owedOf = p => p.balance.pending + (isNum(p.balance.immature) ? p.balance.immature : 0);
+      const pendingUsd = pending.reduce((sum, p) => sum + owedOf(p) * p.price.value, 0);
+      const owed = $('kpi-pending');
+      setF(owed, 'value', pending.length ? usd(pendingUsd) : '—');
+      setF(owed, 'sub', projects.filter(p => p.balance && isNum(p.balance.pending)).map(p => p.symbol + ' ' + sig(owedOf(p)) + (isNum(p.balance.immature) && p.balance.immature > 0 ? '（含未成熟 ' + sig(p.balance.immature) + '）' : '') + (p.active ? '' : '（停）')).join(' · ') || '没有矿池账户数据');
+      const energy = totals.energy_today || {}, watts = $('kpi-power');
+      if (isNum(power.estimated_system_w)) setF(watts, 'value', fmt(power.estimated_system_w, 0)).append(el('small', '', 'W'));
+      else setF(watts, 'value', '—');
+      const partDay = isNum(energy.covered_seconds) && energy.elapsed_seconds - energy.covered_seconds > 900 ? '（只统计到 ' + span(energy.covered_seconds / 3600) + '）' : '';
+      setF(watts, 'sub', isNum(power.estimated_system_w) ? '今日 ' + fmt(energy.kwh, 1) + ' 度 ≈ ¥' + fmt(energy.cost_cny, 2) + partDay + ' · 显卡 ' + fmt(power.gpu_board_total_w, 0) + ' W + 主机估 ' + fmt(power.estimated_host_w, 0) + ' W' : power.estimated_system_status || '功耗估算不可用');
+      const gpus = orderedGpus(data.gpus), heat = $('kpi-temp');
+      const hottest = gpus.reduce((best, gpu) => !best || gpu.temperature > best.temperature ? gpu : best, null);
+      if (hottest) { const node = setF(heat, 'value', fmt(hottest.temperature, 0)); node.append(el('small', '', '°C · ' + gpuTitle(hottest))); node.style.color = {critical: 'var(--bad)', warning: 'var(--warn)'}[level(hottest.temperature, CORE_WARN, CORE_CRIT)] || ''; }
+      else setF(heat, 'value', '—');
+      setF(heat, 'sub', gpus.map(gpu => gpuTitle(gpu) + ' 核心 ' + fmt(gpu.temperature, 0) + '° 显存 ' + (isNum(gpu.memory_temperature) ? fmt(gpu.memory_temperature, 0) + '°' : 'N/A')).join(' · ') || 'NVIDIA 遥测不可用');
+    }
+
+    // —— 总览：项目卡 ——
+    function projectCard() {
+      return frag(`<article class="card project">
+        <div class="p-head"><span class="p-dot"></span><span class="p-symbol" data-f="symbol"></span><span class="p-name" data-f="name"></span><div class="p-chips" data-f="chips"></div></div>
+        <div class="p-body">
+          <div class="p-hero">
+            <div class="p-rate num live" data-f="rate">—</div>
+            <div class="p-rate-sub live" data-f="rate-sub">等待矿工采样</div>
+            <div class="spark"><svg data-f="spark"></svg></div>
+            <div class="spark-cap"><span data-f="spark-left">近 6 小时本机算力</span><span data-f="spark-right"></span></div>
+          </div>
+          <div class="stats">
+            <div class="stat"><span class="label">池端算力</span><b class="num live" data-f="pool-rate">—</b><i data-f="pool-rate-sub">—</i></div>
+            <div class="stat"><span class="label">份额</span><b class="num live" data-f="shares">—</b><i data-f="shares-sub">—</i></div>
+            <div class="stat"><span class="label">最近份额</span><b class="num live" data-f="seen">—</b><i data-f="seen-sub">—</i></div>
+            <div class="stat"><span class="label">币价</span><b class="num live" data-f="price">—</b><i data-f="price-sub">—</i></div>
+            <div class="stat"><span class="label">日产出</span><b class="num live" data-f="yield">—</b><i data-f="yield-sub">—</i></div>
+            <div class="stat hl" data-f="net-box"><span class="label">净收益 / 天</span><b class="num live" data-f="net">—</b><i data-f="net-sub">—</i></div>
+          </div>
+        </div>
+        <div class="p-foot">
+          <div class="payout" data-f="payout"><span class="live" data-f="payout-left">—</span><div class="bar"><span data-f-bar="payout"></span></div><span class="num live" data-f="payout-right">—</span></div>
+          <div class="netline live" data-f="netline">—</div>
+        </div>
+      </article>`);
+    }
+    function updateProject(card, p) {
+      card.style.setProperty('--accent', safeColor(p.color));
+      card.classList.toggle('signal-good', p.signal?.level === 'good');
+      card.classList.toggle('signal-bad', p.signal?.level === 'bad');
+      setF(card, 'symbol', p.symbol);
+      setF(card, 'name', [p.name !== p.symbol ? p.name : '', p.algorithm, p.miner].filter(Boolean).join(' · '));
+      const chips = card.querySelector('[data-f="chips"]'); chips.replaceChildren(...[...p.devices].sort((a,b) => { const order = name => /^GPU [0-9]+$/.test(name) ? gpuOrder((last?.gpus || []).find(g => g.index === Number(name.slice(4)))) : 9999; return order(a)-order(b); }).map(name => el('span', 'tag', /^GPU [0-9]+$/.test(name) ? gpuTitle(Number(name.slice(4))) : name)), el('span', 'tag run', '运行中'));
+      const local = p.local, pool = p.pool, eco = p.economics, unit = local.unit;
+      const rate = card.querySelector('[data-f="rate"]');
+      const perGpuEntries = Object.entries(local.per_gpu || {}).filter(([k, v]) => isNum(v)).sort((a, b) => gpuOrder((last?.gpus || []).find(g => g.index === Number(a[0]))) - gpuOrder((last?.gpus || []).find(g => g.index === Number(b[0]))));
+      if (local.status === '正常' && isNum(local.total)) {
+        if (perGpuEntries.length > 1) {
+          rate.replaceChildren();
+          const wrap = el('div', 'p-rate-cards');
+          for (const [idx, val] of perGpuEntries) {
+            const item = el('div', 'p-rate-gpu-chip');
+            item.append(
+              Object.assign(el('span', 'chip-lbl'), {textContent: gpuTitle({index:Number(idx)})}),
+              document.createTextNode(fmt(val, val >= 100 ? 1 : 2)),
+              Object.assign(el('span', 'chip-unit'), {textContent: unit})
+            );
+            wrap.append(item);
+          }
+          rate.append(wrap);
+          setF(card, 'rate-sub', perGpuEntries.length + ' 卡合计 ' + fmt(local.total, 1) + ' ' + unit + (local.cpu ? ' (含 CPU ' + fmt(local.cpu.hashrate, 2) + ')' : '') + ' · ' + (local.window || '矿工 60 秒均值') + ' · ' + local.age_seconds + ' 秒前');
+        } else {
+          rate.textContent = fmt(local.total, local.total >= 100 ? 1 : 2);
+          rate.append(el('small', '', unit));
+          setF(card, 'rate-sub', local.status !== '正常' ? local.status : local.cpu ? 'GPU ' + fmt(local.gpu, 2) + ' + CPU ' + fmt(local.cpu.hashrate, 2) + ' ' + unit + ' · ' + local.cpu.threads + ' 线程' : (local.window || '矿工本机采样') + ' · ' + local.age_seconds + ' 秒前');
+        }
+      } else {
+        rate.textContent = /采样|等待/.test(local.status) ? '采样中' : '—';
+        setF(card, 'rate-sub', local.status || '等待矿工采样');
+      }
+      setF(card, 'pool-rate', isNum(pool.hashrate_local_unit) ? fmt(pool.hashrate_local_unit, pool.hashrate_local_unit >= 100 ? 1 : 2) : isNum(pool.hashrate) ? sig(pool.hashrate) : '—');
+      const windowName = (pool.hashrate_window || '').replace('矿池', '');
+      setF(card, 'pool-rate-sub', isNum(pool.ratio) ? '本机的 ' + fmt(pool.ratio * 100, 0) + '% ·' + windowName : isNum(pool.hashrate) ? (pool.hashrate_unit || '') + ' ·' + windowName : '矿池没给窗口算力');
+      if (isNum(pool.shares)) { setF(card, 'shares', group(pool.shares)); setF(card, 'shares-sub', '24h · 无效 ' + group(pool.invalid || 0) + ' · 过期 ' + group(pool.stale || 0)); }
+      else if (isNum(pool.accepted)) { setF(card, 'shares', group(pool.accepted)); setF(card, 'shares-sub', '本次启动 · 拒绝 ' + group(pool.rejected || 0) + (isNum(pool.session_stale) ? ' 过期 ' + group(pool.session_stale) : '')); }
+      else { setF(card, 'shares', '—'); setF(card, 'shares-sub', '没有份额数据'); }
+      setF(card, 'seen', isNum(pool.last_seen) ? ago(pool.last_seen) : '—');
+      setF(card, 'seen-sub', isNum(pool.accepted) && isNum(pool.shares) ? '本次启动接受 ' + group(pool.accepted) : pool.source || '—');
+      const price = p.price;
+      setF(card, 'price', price ? coinPrice(price.value) : '—');
+      const priceSub = card.querySelector('[data-f="price-sub"]'); priceSub.replaceChildren();
+      if (price) { if (isNum(price.change_24h_pct)) priceSub.append(el('span', trendClass(price.change_24h_pct), pct(price.change_24h_pct, 1)), document.createTextNode(' 24h · ')); priceSub.append(document.createTextNode(price.kind === 'manual' ? '手动参考价 ' + ago(price.at) : price.source + ' ' + ago(price.at) + estimateNote(price))); priceSub.title = priceSub.textContent; }
+      else priceSub.textContent = '没有可用报价';
+      setF(card, 'yield', p.watch_only ? '需本机实测' : isNum(eco.coins_per_day) ? sig(eco.coins_per_day) + ' ' + p.symbol : '—');
+      setF(card, 'yield-sub', eco.basis_short ? eco.basis_short + recentNote(eco, ' · ', '') + (eco.difficulty_lag ? ' · 难度追平后约 ' + sig(eco.difficulty_lag.coins_per_day) : '') + (eco.yesterday ? ' · 昨日 ' + sig(eco.yesterday.amount) : '') : '等待记账或全网数据').title = (eco.basis_label || '') + (eco.recent ? '；近 6 小时的实记折成每天的量，全网算力快涨快跌时它更接近现在' : '') + lagNote(eco, ' ' + p.symbol + '/天');
+      const box = card.querySelector('[data-f="net-box"]'); box.classList.toggle('loss', isNum(eco.net_usd_per_day) && eco.net_usd_per_day < 0);
+      box.classList.toggle('loose', !eco.calibrated);
+      setF(card, 'net', isNum(eco.net_usd_per_day) ? usd(eco.net_usd_per_day) : '—');
+      setF(card, 'net-sub', isNum(eco.net_usd_per_day) ? p.gpu_indices.length + ' 张卡 · 毛 ' + usd(eco.gross_usd_per_day) + ' − 电 ' + usd(eco.electricity_usd_per_day) + marketNote(eco) : eco.missing.length ? '缺 ' + eco.missing.join('、') : '—').title = eco.power_basis || '';
+      const balance = p.balance, payout = card.querySelector('[data-f="payout"]');
+      payout.hidden = !balance;
+      if (balance) {
+        const hasBar = isNum(balance.progress_pct);
+        payout.querySelector('.bar').style.visibility = hasBar ? '' : 'hidden';
+        card.querySelector('[data-f-bar="payout"]').style.width = (hasBar ? balance.progress_pct : 0) + '%';
+        setF(card, 'payout-left', isNum(balance.pending) ? '待付 ' + sig(balance.pending) + (isNum(balance.threshold) ? ' / ' + sig(balance.threshold) : '') + ' ' + balance.unit : '累计 credit ' + sig(balance.credited) + ' ' + balance.unit);
+        setF(card, 'payout-right', (hasBar ? fmt(balance.progress_pct, 0) + '%' + (isNum(balance.eta_hours) ? ' · 约 ' + span(balance.eta_hours) + '到门槛' : balance.progress_pct >= 100 ? ' · 等矿池打款' : '') + ' · ' : '') + (isNum(balance.paid) ? '已付 ' + sig(balance.paid) : '') + (isNum(balance.immature) ? ' · 未成熟 ' + sig(balance.immature) : ''));
+      }
+      const net = p.network;
+      const parts = [];
+      if (net) {
+        parts.push('全网 ' + bigHash(net.hashrate, net.hashrate_unit) + (net.smoothed ? '（折算值，取近 6 小时中位数' + (isNum(net.change_24h_pct) ? '，' + pct(net.change_24h_pct) + ' 24h' : '') + '）' : net.volatile ? '（折算值，起伏大）' : isNum(net.change_24h_pct) ? '（' + pct(net.change_24h_pct) + ' 24h）' : ''));
+        if (isNum(net.my_share_pct)) parts.push('本机占 ' + net.my_share_pct.toPrecision(2) + '%');
+        if (isNum(net.pool_share_pct)) parts.push('矿池占 ' + fmt(net.pool_share_pct, net.pool_share_pct < 10 ? 1 : 0) + '%');
+        if (isNum(net.block_reward) && isNum(net.block_seconds)) parts.push('每块 ' + sig(net.block_reward) + ' ' + p.symbol + ' / ' + fmt(net.block_seconds, net.block_seconds < 60 ? 1 : 0) + ' 秒');
+        if (isNum(net.luck_percent)) parts.push('矿池 24h 运气 ' + fmt(net.luck_percent, 0) + '%');
+      }
+      if (p.daily) parts.push('每日入账见行情雷达');
+      setF(card, 'netline', parts.join(' · ') || (p.market_note || '没有全网数据'));
+      const series = history?.rates?.[p.symbol], poolSeries = history?.pool_rates?.[p.symbol];
+      const drawn = spark(card.querySelector('[data-f="spark"]'), [{values: series, color: safeColor(p.color), fill: true}, {values: poolSeries, color: '#aeb9cf', dashed: true}]);
+      const bounds = range(series);
+      setF(card, 'spark-left', drawn ? '近 ' + Math.round((history.minutes || 360) / 60) + ' 小时 · 实线本机，虚线池端' : '走势图在积累数据');
+      setF(card, 'spark-right', drawn && bounds ? fmt(bounds[0], 1) + ' – ' + fmt(bounds[1], 1) + ' ' + unit : '');
+    }
+
+    // —— 总览：显卡 / CPU / 雷达摘要 ——
+
+    function gpuTitle(value) {
+      const item = typeof value === 'object' ? value : {index: Number(value)};
+      const live = item?.display_title ? item : (last?.gpus || []).find(g => item?.uuid ? g.uuid === item.uuid : Number(g.index) === Number(item?.index));
+      return live?.display_title || ('GPU ' + (item?.index ?? '—'));
+    }
+    function gpuOrder(gpu) { return Number.isFinite(gpu?.display_number) ? gpu.display_number : 1000 + Number(gpu?.index ?? 0); }
+    function orderedGpus(gpus) { return [...(gpus || [])].sort((a, b) => gpuOrder(a) - gpuOrder(b)); }
+    function displayGpuCards(data) {
+      const slots = data.gpu_display_slots;
+      if (!Array.isArray(slots) || !slots.length) return orderedGpus(data.gpus);
+      return [...slots].sort((a, b) => a.display_number - b.display_number).map(slot => {
+        const live = (data.gpus || []).find(g => g.uuid === slot.uuid);
+        return live ? {...live, ...slot, pending:false} : {...slot, index:null, pending:true, name:slot.display_name,
+          auto_pending:Boolean(slot.pending && slot.auto_enroll), display_state:slot.display_state || (slot.pending ? '待安装' : '未接入')};
+      });
+    }
+    function pendingGpuNote(gpu) {
+      return gpu.pending_note || (gpu.auto_pending ? '符合预留条件的新卡识别后自动归位，功耗按显卡开机策略恢复。' : '当前未检测到这张卡；保留原位置和已保存的功耗设置。');
+    }
+    function pendingTuneCard(gpu) {
+      const card = el('article', 'card sec');
+      card.append(el('h2', '', gpuTitle(gpu)), el('p', 'hint', gpu.display_state + (gpu.expected_slot ? ' · ' + gpu.expected_slot : '')),
+        el('p', 'hint', pendingGpuNote(gpu)));
+      return card;
+    }
+    function pausedTuneCard(gpu) {
+      const card = el('article', 'card sec');
+      card.append(el('h2', '', gpuTitle(gpu)), el('p', 'hint', '已停挖 · ' + (gpu.pause_reason || '等待恢复')),
+        el('p', 'hint', '当前处于待机；供电处理后再恢复挖矿'));
+      return card;
+    }
+    function displayRigEntries(d) {
+      const paused = new Set((last?.gpu_display_slots || []).filter(slot => slot.mining_paused).map(slot => slot.uuid));
+      const items = Object.entries(d.gpus || {}).filter(([uuid]) => !paused.has(uuid));
+      for (const slot of last?.gpu_display_slots || []) if (!slot.present || slot.mining_paused) {
+        items.push(['pending-display-' + slot.display_number, {pending:true, label:slot.display_title,
+          display_number:slot.display_number, expected_slot:slot.expected_slot, mining_paused:slot.mining_paused, pause_reason:slot.pause_reason, display_state:slot.mining_paused ? '已停挖' : slot.display_state || (slot.pending ? '待安装' : '未接入')}]);
+      }
+      return items.sort((a,b) => {
+        const find = x => (last?.gpus || []).find(g => g.uuid === x[0]) || x[1];
+        return gpuOrder(find(a)) - gpuOrder(find(b));
+      });
+    }
+
+    function gpuCard() {
+      return frag(`<article class="card dev">
+        <div class="dev-head"><div class="dev-title"><span data-f="title"></span><em data-f="role"></em></div><div class="dev-model" data-f="model"></div></div>
+        <div class="temps">
+          <div class="temp" data-f-level="core"><b class="num live"><span data-f="core">—</span><small>°C</small></b><i>核心</i></div>
+          <div class="temp" data-f-level="mem"><b class="num live"><span data-f="mem">—</span><small>°C</small></b><i>显存</i></div>
+          <div class="fanwrap"><span class="fan" data-f="fan-icon"></span><span class="num live" data-f="fan">—</span></div>
+        </div>
+        <div class="meters">
+          <div class="meter"><span>功耗</span><div class="bar" data-f="power-track"><span data-f-bar="power"></span></div><span class="num live" data-f="power">—</span></div>
+          <div class="spark"><svg data-f="spark"></svg></div>
+        </div>
+        <div class="dev-foot"><span class="num live" data-f="rate">—</span><span class="num live" data-f="misc">—</span></div>
+      </article>`);
+    }
+    function updateGpu(card, gpu) {
+      setF(card, 'title', gpuTitle(gpu));
+      let pending = card.querySelector('.gpu-pending-message');
+      if (!pending) { pending = el('p', 'hint gpu-pending-message'); card.append(pending); }
+      pending.hidden = !gpu.pending;
+      for (const node of card.querySelectorAll('.temps,.meters,.dev-foot')) node.style.display = gpu.pending ? 'none' : '';
+      if (gpu.pending) {
+        setF(card, 'role', gpu.display_state || '待安装');
+        setF(card, 'model', gpu.display_model || gpu.display_name || gpu.name || '');
+        pending.textContent = pendingGpuNote(gpu);
+        return;
+      }
+
+      const owner = (last.projects || []).find(p => p.active && p.gpu_indices.includes(gpu.index));
+      setF(card, 'title', gpuTitle(gpu));
+      setF(card, 'role', gpu.mining_paused ? '已停挖' : owner ? owner.symbol : '待命');
+      setF(card, 'model', (gpu.display_model || gpu.name.replace('NVIDIA GeForce ', '')));
+      setF(card, 'core', fmt(gpu.temperature, 0));
+      setF(card, 'mem', isNum(gpu.memory_temperature) ? fmt(gpu.memory_temperature, 0) : 'N/A');
+      card.querySelector('[data-f-level="core"]').className = 'temp ' + level(gpu.temperature, CORE_WARN, CORE_CRIT);
+      card.querySelector('[data-f-level="mem"]').className = 'temp ' + level(gpu.memory_temperature, MEM_WARN, MEM_CRIT);
+      const fan = card.querySelector('[data-f="fan-icon"]');
+      fan.classList.toggle('still', !isNum(gpu.fan_percent) || gpu.fan_percent < 1);
+      if (isNum(gpu.fan_percent) && gpu.fan_percent >= 1) fan.style.setProperty('--spin', (3.2 - Math.min(100, gpu.fan_percent) / 100 * 2.7).toFixed(2) + 's');
+      setF(card, 'fan', isNum(gpu.fan_percent) ? '风扇 ' + fmt(gpu.fan_percent, 0) + '%' : '风扇 —');
+      const ratio = gpu.power_limit > 0 ? Math.min(100, gpu.power / gpu.power_limit * 100) : 0;
+      card.querySelector('[data-f-bar="power"]').style.width = ratio + '%';
+      setF(card, 'power', fmt(gpu.power, 0) + ' / ' + fmt(gpu.power_limit, 0) + ' W');
+      const mine = owner?.local?.per_gpu?.[String(gpu.index)];
+      setF(card, 'rate', gpu.mining_paused ? (gpu.pause_reason || '已停挖') : isNum(mine) ? fmt(mine, 2) + ' ' + owner.local.unit : owner ? '等待本卡算力' : '没有矿工');
+      setF(card, 'misc', (isNum(gpu.core_clock) ? fmt(gpu.core_clock, 0) + ' MHz · ' : '') + '占用 ' + fmt(gpu.utilization, 0) + '% · 显存 ' + fmt(gpu.memory_used / 1024, 1) + ' G');
+      const series = history?.gpus?.[String(gpu.index)];
+      spark(card.querySelector('[data-f="spark"]'), [{values: series?.temp, color: '#ffb454', fill: true}, {values: series?.memory_temp, color: '#7fb0ff', dashed: true}], 300, 40);
+    }
+    function renderCpu(noid) {
+      const card = $('cpu-card'); card.hidden = !noid;
+      if (!noid) return;
+      const sample = noid.telemetry || {}, ok = sample.status === '正常';
+      setF(card, 'role', 'NOID · ' + (noid.threads ?? '—') + ' 线程');
+      setF(card, 'service', noid.service === 'active' ? '运行中 · PID ' + (noid.pid || '—') : '服务 ' + (noid.service || 'unknown'));
+      setF(card, 'rate', ok ? fmt(sample.hashrate, 2) : /采样|等待/.test(sample.status || '') ? '采样中' : '—');
+      setF(card, 'rate-note', ok ? 'MH/s · 滚动 120 秒' : sample.status || 'CPU 算力');
+      setF(card, 'temp', isNum(noid.cpu_temperature_c) ? fmt(noid.cpu_temperature_c, 0) + '°C' : '—');
+      card.querySelector('[data-f-level="temp"]').className = 'temp ' + level(noid.cpu_temperature_c, 85, 95);
+      card.querySelector('[data-f-bar="usage"]').style.width = (isNum(noid.cpu_usage_percent) ? noid.cpu_usage_percent : 0) + '%';
+      setF(card, 'usage', isNum(noid.cpu_usage_percent) ? fmt(noid.cpu_usage_percent, 0) + '%' : '—');
+      setF(card, 'shares', ok ? '接受 ' + group(sample.accepted) + ' · 拒绝 ' + group(sample.rejected) + ' · 过期 ' + group(sample.stale) : '—');
+      setF(card, 'threads', '最多 ' + (noid.max_threads ?? '—') + ' 线程 · 在“调节”里改');
+      setF(card, 'age', ok ? '采样 ' + sample.age_seconds + ' 秒前' : '');
+    }
+    const SIGNAL_CLASS = {good: 'good', bad: 'bad', mixed: 'mixed', steady: 'soft', unknown: 'soft'};
+    function radarGpuTitle(index) {
+      return (last?.gpus || []).find(g => Number(g.index) === Number(index))?.display_title || ('GPU ' + index);
+    }
+    function radarProjects(data) {
+      const seen = new Set();
+      return [...(data.projects || []), ...(data.market_projects || [])].filter(p => !seen.has(p.symbol) && seen.add(p.symbol));
+    }
+    function renderRadarSummary(data) {
+      const rows = radarProjects(data), active = rows.filter(p => p.active), good = rows.filter(p => p.signal?.level === 'good');
+      const set = (key, value) => document.querySelector('[data-radar="' + key + '"]').textContent = value;
+      set('active', active.map(p => p.symbol).join(' + ') || '未挖矿');
+      set('active-note', '本机 ' + (data.gpus || []).length + ' 张卡 · ' + rows.length + ' 个关注币种');
+      set('opportunity', good.map(p => p.symbol).join('、') || '暂无明确信号');
+      const priced = rows.filter(p => p.price).length, networked = rows.filter(p => p.network).length;
+      set('coverage', '币价 ' + priced + '/' + rows.length + ' · 全网 ' + networked + '/' + rows.length);
+      set('coverage-note', '缺失或过期的数据留空，展开币种可看来源与风险');
+    }
+    function renderMini(data) {
+      const projects = radarProjects(data);
+      sync($('mini-rows'), projects, p => p.symbol, () => frag('<div class="mini-row"><span class="sym" data-f="sym"></span><span class="tag" data-f="state"></span><span class="px num live" data-f="px"></span><span class="tag" data-f="signal"></span></div>'), (row, p) => {
+        row.style.setProperty('--accent', safeColor(p.color));
+        setF(row, 'sym', p.symbol);
+        const state = setF(row, 'state', p.active ? '在挖' : p.watch_only ? '关注' : '停'); state.className = 'tag ' + (p.active ? 'run' : 'stop');
+        const px = row.querySelector('[data-f="px"]'); px.replaceChildren(document.createTextNode(p.price ? coinPrice(p.price.value) + ' ' : '— '));
+        if (p.price && isNum(p.price.change_24h_pct)) px.append(el('span', trendClass(p.price.change_24h_pct), pct(p.price.change_24h_pct)));
+        const signal = setF(row, 'signal', p.signal.label); signal.className = 'tag ' + SIGNAL_CLASS[p.signal.level]; signal.title = p.signal.reasons.join(' · ');
+      });
+      const board = data.leaderboard, card = $('radar-mini');
+      setF(card, 'note', projects.length + ' 个关注币种');
+      const ourName = row => (projects.find(p => p.leaderboard && p.leaderboard.rank === row.rank) || {}).symbol || row.tag;
+      setF(card, 'board', board ? 'WhatToMine 榜首 ' + board.rows.slice(0, 2).map(ourName).join('、') + '（只是线索）' : '全市场榜单暂不可用');
+    }
+
+    // —— 行情雷达页 ——
+    function watchCard(p) {
+      const card = frag(`<article class="card w-card">
+        <div class="w-head"><span class="p-symbol" data-f="symbol"></span><span class="p-name" data-f="name"></span><span class="tag" data-f="state"></span><span class="tag" data-f="signal"></span><span class="reason" data-f="reason"></span></div>
+        <div class="w-metrics">
+          <div class="stat"><span class="label">币价</span><b class="num live" data-f="price">—</b><i data-f="price-sub">—</i></div>
+          <div class="stat"><span class="label">全网算力</span><b class="num live" data-f="net">—</b><i data-f="net-sub">—</i></div>
+          <div class="stat"><span class="label">单位算力收益</span><b class="num live" data-f="index">—</b><i data-f="index-sub">—</i></div>
+          <div class="stat"><span class="label" data-f="yield-label">本机估算产出</span><b class="num live" data-f="yield">—</b><i data-f="yield-sub">—</i></div>
+          <div class="stat hl" data-f="net-box"><span class="label" data-f="profit-label">本机估算净收益</span><b class="num live" data-f="profit">—</b><i data-f="profit-sub">—</i></div>
+        </div>
+        <div class="days" data-f="days" hidden></div>
+        <details class="w-details"><summary>矿池、数据来源与风险</summary><p class="hint" data-f="details"></p></details>
+        <div class="w-foot">
+          <div class="pools" data-f="pools"></div>
+          <div class="w-price"><input data-f="manual" inputmode="decimal" placeholder="手动参考价 $" aria-label="手动参考价（美元）"><button class="ui-button" type="button" data-act="save">保存</button><button class="ghost" type="button" data-act="clear" hidden>清除</button></div>
+          <div class="pool-note" data-f="note"></div>
+        </div>
+      </article>`);
+      card.querySelector('[data-act="save"]').addEventListener('click', () => saveManual(card, p.symbol, false));
+      card.querySelector('[data-act="clear"]').addEventListener('click', () => saveManual(card, p.symbol, true));
+      return card;
+    }
+    async function saveManual(card, symbol, clear) {
+      const input = card.querySelector('[data-f="manual"]'), note = card.querySelector('[data-f="note"]');
+      try {
+        const value = clear ? null : input.value.trim();
+        if (!clear && !/^\d{1,9}(\.\d{1,10})?$/.test(value)) throw new Error('填一个正数，比如 0.0657');
+        await writeRequest('/api/manual-price', {symbol, price_usd: value});
+        input.value = ''; note.textContent = clear ? '已清除手动参考价，恢复用接口报价。' : '已保存 ' + symbol + ' 手动参考价 $' + value + '，24 小时内优先于接口报价。';
+        poll();
+      } catch (error) { note.textContent = error.message; }
+    }
+    function updateWatch(card, p) {
+      card.style.setProperty('--accent', safeColor(p.color));
+      card.classList.toggle('signal-good', p.signal?.level === 'good');
+      card.classList.toggle('signal-bad', p.signal?.level === 'bad');
+      setF(card, 'symbol', p.symbol);
+      setF(card, 'name', [p.name !== p.symbol ? p.name : '', p.algorithm, p.miner].filter(Boolean).join(' · '));
+      const state = setF(card, 'state', p.active ? '在挖 · ' + p.gpu_indices.map(i => radarGpuTitle(i)).join(' + ') : p.watch_only ? '仅关注行情' : '停用'); state.className = 'tag ' + (p.active ? 'run' : 'stop');
+      const signal = setF(card, 'signal', p.signal.label); signal.className = 'tag ' + SIGNAL_CLASS[p.signal.level];
+      setF(card, 'reason', p.signal.reasons.join(' · '));
+      const price = p.price, net = p.network, eco = p.economics;
+      const feedText = (p.feeds || []).map(f => f.label + '：' + f.source + ' · ' + (f.ok ? ago(f.fetched_at) : f.error || '等待数据')).join('\n');
+      const balanceText = p.balance ? '矿池待付 ' + sig(p.balance.pending) + ' ' + p.symbol + ' · 已付 ' + sig(p.balance.paid) : '';
+      setF(card, 'details', [p.market_note, feedText, balanceText, p.watch_only ? '本机尚无该币实挖基准；不套用其他矿机的收益估算。' : eco.power_basis].filter(Boolean).join('\n'));
+
+      setF(card, 'price', price ? coinPrice(price.value) : '—');
+      const priceSub = card.querySelector('[data-f="price-sub"]'); priceSub.replaceChildren();
+      if (price) { if (isNum(price.change_24h_pct)) priceSub.append(el('span', trendClass(price.change_24h_pct), pct(price.change_24h_pct, 1)), document.createTextNode(' 24h · ')); priceSub.append(document.createTextNode(price.kind === 'manual' ? '手动 ' + ago(price.at) + (isNum(price.feed_value) ? ' · 接口 ' + coinPrice(price.feed_value) : '') : price.source + ' ' + ago(price.at) + estimateNote(price))); priceSub.title = priceSub.textContent; }
+      else priceSub.textContent = '没有可用报价，可在右下手动填';
+      setF(card, 'net', net ? bigHash(net.hashrate, net.hashrate_unit) : '—');
+      const netSub = card.querySelector('[data-f="net-sub"]'); netSub.replaceChildren();
+      if (net) { if (net.noisy) netSub.textContent = '折算值，起伏大；攒够 6 小时记录后再比较'; else if (isNum(net.change_24h_pct)) netSub.append(el('span', trendClass(-net.change_24h_pct), pct(net.change_24h_pct, 0)), document.createTextNode(' ' + net.change_basis)); else netSub.textContent = (net.smoothed ? '折算值，取近 6 小时中位数；' : '') + '24 小时对比在积累数据'; netSub.title = netSub.textContent; }
+      else netSub.textContent = '没有全网数据源';
+      // 单位算力收益按该币矿工自己的算力单位表示（如每 MH/s 每天多少美元），方便和本机算力心算
+      const prefix = (p.local.unit.match(/^([kKMGTPE]?)[A-Za-z]+\/s$/) || [])[1] || '';
+      const perUnit = net && isNum(net.yield_index) ? net.yield_index * ({k: 1e3, K: 1e3, M: 1e6, G: 1e9, T: 1e12, P: 1e15, E: 1e18}[prefix] || 1) : null;
+      setF(card, 'index', isNum(perUnit) ? usd(perUnit) : '—');
+      const indexSub = card.querySelector('[data-f="index-sub"]'); indexSub.replaceChildren();
+      if (isNum(perUnit)) { indexSub.append(document.createTextNode('每 ' + p.local.unit + ' 每天')); if (isNum(net.yield_index_change_24h_pct)) indexSub.append(document.createTextNode(' · '), el('span', trendClass(net.yield_index_change_24h_pct), pct(net.yield_index_change_24h_pct, 0)), document.createTextNode(' 24h')); }
+      else indexSub.textContent = '缺币价或出块数据';
+      const cardCount = (p.gpu_indices || []).length || 1;
+      setF(card, 'yield-label', p.active ? (cardCount > 1 ? `整机产出 (${cardCount}卡)` : '单卡估算产出') : (cardCount > 1 ? `若改挖 · 整机产出 (${cardCount}卡)` : '若改挖 · 单卡产出'));
+      setF(card, 'profit-label', p.active ? (cardCount > 1 ? `整机净收益 (${cardCount}卡)` : '单卡估算净收益') : (cardCount > 1 ? `若改挖 · 整机净利 (${cardCount}卡)` : '若改挖 · 单卡净收益'));
+      setF(card, 'yield', p.watch_only ? '需本机实测' : isNum(eco.coins_per_day) ? sig(eco.coins_per_day) + ' ' + p.symbol + '/天' : '—');
+      const perCardText = isNum(eco.coins_per_day) && cardCount > 1 ? ` · 每卡约 ${sig(eco.coins_per_day / cardCount)} ${p.symbol}/天` : '';
+      setF(card, 'yield-sub', (cardCount > 1 ? `【整机 ${cardCount} 卡】合计 ${sig(eco.coins_per_day)} ${p.symbol}/天${perCardText} ｜ ` : '') + (eco.basis_label ? eco.basis_label + recentNote(eco, '；', '/天') + lagNote(eco, '/天') + (eco.reference_rate ? ' · ' + eco.reference_rate.note : '') : '没有记账也没有全网数据')).title = (eco.basis_label || '') + lagNote(eco, ' ' + p.symbol + '/天') + (net?.yield_note ? ' ｜ ' + net.yield_note : '');
+      const box = card.querySelector('[data-f="net-box"]'); box.classList.toggle('loss', isNum(eco.net_usd_per_day) && eco.net_usd_per_day < 0);
+      box.classList.toggle('loose', !eco.calibrated); box.classList.toggle('hypo', !p.active);
+      setF(card, 'profit', isNum(eco.net_usd_per_day) ? (isNum(eco.net_cny_per_day) ? cny(eco.net_cny_per_day) : usd(eco.net_usd_per_day)) + '/天' : '—');
+      setF(card, 'profit-sub', isNum(eco.net_usd_per_day) ? (isNum(eco.net_cny_per_gpu_per_day) ? '【单卡】' + cny(eco.net_cny_per_gpu_per_day) + '/天 · ' : '') + '【整机】' + cardCount + '卡 ' + fmt(eco.power_w, 0) + ' W · ' + usd(eco.net_usd_per_day) + marketNote(eco) + evidenceOf(p) : eco.missing.length ? '缺 ' + eco.missing.join('、') : '—').title = eco.power_basis || '';
+      if (p.watch_only) { setF(card, 'yield-label', '本机实挖基准'); setF(card, 'yield-sub', '尚未在本机实测该币算力'); setF(card, 'profit-label', '本机收益'); setF(card, 'profit', '—'); setF(card, 'profit-sub', '仅关注行情，不计入本机收益'); }
+      const days = card.querySelector('[data-f="days"]'), rows = (p.daily?.days || []);
+      const firstPaid = rows.findIndex(row => row.amount > 0), shown = firstPaid < 0 ? [] : rows.slice(firstPaid);
+      days.hidden = shown.length < 2;
+      if (!days.hidden) { const peak = Math.max(...shown.map(row => row.amount)); const today = new Date().toISOString().slice(0, 10);
+        days.replaceChildren(...shown.map(row => { const bar = el('span', row.day === today ? 'today' : ''); bar.style.height = Math.max(4, row.amount / peak * 100) + '%'; bar.title = row.day + '  ' + sig(row.amount) + ' ' + p.daily.unit; return bar; }));
+        days.title = '每日入账（' + p.daily.timezone + ' 日界）· ' + p.daily.source; }
+      const pools = card.querySelector('[data-f="pools"]'), note = card.querySelector('[data-f="note"]');
+      sync(pools, p.pools || [], pool => pool.name, pool => { const chip = el('button', 'pool'); chip.type = 'button'; chip.append(el('b'), el('small')); chip.addEventListener('click', () => { note.textContent = chip.dataset.note; note.classList.add('open'); }); return chip; }, (chip, pool) => {
+        chip.className = 'pool' + (pool.current ? ' current' : '') + (pool.avoid ? ' avoid' : '');
+        chip.firstChild.textContent = (pool.current ? '在用 · ' : pool.avoid ? '避开 · ' : '') + pool.name;
+        chip.lastChild.textContent = [pool.fee, pool.min_payout].filter(Boolean).join(' · ');
+        chip.dataset.note = pool.name + '：' + [pool.fee && '费率 ' + pool.fee, pool.min_payout && '起付 ' + pool.min_payout, pool.scheme, pool.share, pool.note, pool.verified && '核对于 ' + pool.verified].filter(Boolean).join('；');
+      });
+      if (!note.textContent) note.textContent = [p.market_note, net?.yield_note].filter(Boolean).join(' ');
+      card.querySelector('[data-act="clear"]').hidden = price?.kind !== 'manual';
+    }
+    // 这个估算有多可信：在挖的看是不是账户实记，停挖的一律是理论值
+    const evidenceOf = p => { const eco = p.economics, used = eco.calibration && /calibrated$/.test(eco.basis || ''); return p.active ? (eco.calibrated ? '' : ' · 未校准，仅供参考') : used ? ' · 理论值 × 上次实挖的实记比 ' + eco.calibration.ratio.toFixed(2) : eco.calibrated ? ' · 理论值，公式对过账户实记' : ' · 理论值，未校准'; };
+    // 难度滞后：矿池算力已超过按难度折算的全网时，给出难度追平后的保守日产
+    const lagNote = (eco, unit) => eco.difficulty_lag ? '；全网算力涨得比难度快，难度追平后约 ' + sig(eco.difficulty_lag.coins_per_day) + (unit || '') : '';
+    const estimateNote = price => price && isNum(price.estimate_value) ? ' · 估算按' + price.estimate_basis + ' ' + coinPrice(price.estimate_value) : '';
+    // 挖哪个币：把每个币折成“每张卡每天净收益”才可比（在挖与停挖、单卡与双卡）
+    function renderCompare(data) {
+      const guide = p => isNum(p.economics.guide_cny_per_gpu_per_day) ? p.economics.guide_cny_per_gpu_per_day : null;
+      const rows = [...(data.projects || [])].filter(p => (p.gpu_indices || []).length).sort((a, b) => (guide(b) ?? -Infinity) - (guide(a) ?? -Infinity));
+      sync($('compare-rows'), rows, p => p.symbol, () => frag('<tr><td data-f="coin"></td><td class="r num" data-f="card"></td><td class="r num" data-f="all"></td><td class="muted wrap" data-f="basis"></td></tr>'), (tr, p) => {
+        const eco = p.economics; tr.className = p.active ? 'ours' : 'hypo';
+        setF(tr, 'coin', p.symbol + (p.active ? ' · 在挖' : ' · 停'));
+        setF(tr, 'card', guide(p) !== null ? cny(guide(p)) + (isNum(eco.guide_error_pct) ? ' ±' + eco.guide_error_pct + '%' : '') : isNum(eco.guide_usd_per_gpu_per_day) ? usd(eco.guide_usd_per_gpu_per_day) : '—');
+        setF(tr, 'all', guide(p) !== null ? cny(guide(p) * eco.gpu_count) + ' / ' + eco.gpu_count + ' 卡' : '—');
+        setF(tr, 'basis', (eco.guide_basis || '缺 ' + (eco.missing || []).join('、')) + (eco.price_basis && eco.price_basis !== '现价' ? '，' + eco.price_basis : '') + (p.active ? '' : eco.calibrated ? '（若改挖）' : '（若改挖，只当线索）'));
+      });
+      const priced = rows.filter(p => guide(p) !== null), mine = priced.find(p => p.active), top = priced[0];
+      $('compare-note').textContent = priced.length < 2 ? '目前仅 ' + (mine?.symbol || '部分币种') + ' 有本机估算，其余币种需实测后比较' : !mine ? (top ? '没有在挖的币可比' : '估算在采集中') : top === mine ? '在挖的 ' + mine.symbol + ' 目前每卡最高' :
+        top.symbol + ' 的估算每卡比在挖的 ' + mine.symbol + ' 多 ' + cny(guide(top) - guide(mine)) + '/天' + (top.economics.calibrated ? (guide(top) - guide(mine) < (Math.abs(guide(top)) * (top.economics.guide_error_pct || 0) + Math.abs(guide(mine)) * (mine.economics.guide_error_pct || 0)) / 100 ? '（差距在估算误差内）' : '') : '（未校准，只当线索）');
+    }
+    function renderBoard(data) {
+      const board = data.leaderboard, body = $('board-rows');
+      const absent = (data.projects || []).filter(p => !p.leaderboard).map(p => p.symbol);
+      $('board-note').textContent = board ? board.source + ' · ' + ago(board.fetched_at) + ' · 共 ' + board.total + ' 个币，列前 ' + board.rows.length + (absent.length ? ' · ' + absent.join('、') + ' 不在这张榜上' : '') : 'WhatToMine 榜单暂时取不到';
+      sync(body, board ? board.rows : [], row => row.tag + row.name, () => frag('<tr><td class="num" data-f="rank"></td><td data-f="name"></td><td class="muted" data-f="algo"></td><td class="r num" data-f="index"></td><td class="r num" data-f="index24"></td></tr>'), (tr, row) => {
+        tr.className = (board.ours.includes(row.tag.toUpperCase()) || (data.projects || []).some(p => p.leaderboard?.rank === row.rank)) ? 'ours' : '';
+        setF(tr, 'rank', row.rank); setF(tr, 'name', row.name + '（' + row.tag + '）' + (tr.className ? ' · 我们关注' : ''));
+        setF(tr, 'algo', row.algorithm); setF(tr, 'index', group(row.index)); setF(tr, 'index24', group(row.index_24h));
+      });
+    }
+    function renderFeeds(data) {
+      const rows = [];
+      for (const p of data.projects || []) for (const feed of p.feeds || []) rows.push({...feed, key: p.symbol + feed.kind, symbol: p.symbol});
+      sync($('feed-rows'), rows, row => row.key, () => frag('<tr><td data-f="symbol"></td><td data-f="label"></td><td class="muted" data-f="source"></td><td class="r num" data-f="at"></td><td data-f="state"></td></tr>'), (tr, row) => {
+        setF(tr, 'symbol', row.symbol); setF(tr, 'label', row.label); setF(tr, 'source', row.source);
+        setF(tr, 'at', row.fetched_at ? ago(row.fetched_at) : '—');
+        const state = setF(tr, 'state', row.ok ? '正常' : row.error ? '取不到：' + row.error : row.fetched_at ? '已过期' : '还没取到'); state.className = row.ok ? 'up' : 'down';
+      });
+      const links = [];
+      for (const p of data.projects || []) for (const link of p.links || []) if (/行情|交易/.test(link.label)) links.push({key: p.symbol + link.url, text: p.symbol + ' · ' + link.label, url: link.url});
+      sync($('market-links'), links, link => link.key, () => { const a = el('a', 'pool'); a.target = '_blank'; a.rel = 'noopener'; return a; }, (a, link) => { a.textContent = link.text + ' ↗'; a.href = link.url; });
+    }
+
+    // —— 系统页 ——
+    function sensor(label, value, off = false) { const node = el('span', 'sensor' + (off ? ' off' : '')); node.append(el('span', '', label), el('strong', '', value)); return node; }
+    function renderSystem(data) {
+      const sys = data.system || {};
+      $('sys-list').replaceChildren(
+        sensor('已运行', isNum(sys.uptime_seconds) ? span(sys.uptime_seconds / 3600) : '—'),
+        sensor('负载', isNum(sys.load_1m) ? fmt(sys.load_1m, 1) + ' / ' + (sys.cpu_threads || '—') + ' 线程' : '—'),
+        sensor('内存可用', isNum(sys.memory_available_gb) ? fmt(sys.memory_available_gb, 1) + ' / ' + fmt(sys.memory_total_gb, 0) + ' GB' : '—'),
+        sensor('系统盘剩余', isNum(sys.disk_free_gb) ? fmt(sys.disk_free_gb, 0) + ' GB（' + fmt(sys.disk_free_pct, 0) + '%）' : '—'),
+        sensor('待重启', sys.reboot_required ? '是' : '否', !sys.reboot_required));
+      $('sys-note').textContent = sys.reboot_required ? '有更新等重启生效；重启会中断挖矿几分钟，建议人在机器旁时进行' : '没有待重启的更新';
+      const temps = $('temperatures'); temps.replaceChildren();
+      const names = {'coretemp:Package id 0': 'CPU', 'nct6798:SYSTIN': '主板', 'nvme:Composite': 'NVMe'};
+      for (const t of data.hardware?.temperatures || []) temps.append(sensor(names[t.chip + ':' + t.label] || t.label, fmt(t.celsius, 0) + '°C'));
+      for (const gpu of orderedGpus(data.gpus)) temps.append(sensor(gpuTitle(gpu) + ' 核心 / 显存', fmt(gpu.temperature, 0) + ' / ' + (isNum(gpu.memory_temperature) ? fmt(gpu.memory_temperature, 0) : 'N/A') + '°C'));
+      if (!temps.children.length) temps.textContent = '温度传感器不可用';
+      $('thermal-note').textContent = '预警线：核心 82/88°C · 显存 90/100°C；每 10 秒采样。' + (data.thermal?.memory_sensor_note || '');
+      const board = $('case-fans'); board.replaceChildren();
+      for (const fan of data.hardware?.fans || []) board.append(sensor(fan.label, (isNum(fan.rpm) ? fan.rpm : '—') + ' RPM', fan.rpm === 0));
+      if (!board.children.length) board.textContent = '主板风扇数据不可用';
+      const nvidia = $('nvidia-fans'); nvidia.replaceChildren();
+      for (const fan of data.nvidia_fans || []) nvidia.append(sensor('通道 ' + fan.channel, (isNum(fan.rpm) ? fan.rpm : '—') + ' RPM'));
+      if (!nvidia.children.length) nvidia.textContent = '当前图形会话未提供 RPM';
+      $('ui-version').textContent = data.ui_version || '—';
+    }
+    async function loadThermalLog() {
+      const box = $('thermal-log'); box.textContent = '正在读取日志…';
+      try {
+        const response = await fetch('/api/thermal-log?limit=200', {cache: 'no-store'});
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const data = await response.json(); box.replaceChildren();
+        for (const event of data.events || []) {
+          const summary = event.type === 'sample' ? (event.gpus || []).map(gpu => gpuTitle({index:Number(gpu.gpu)}) + ' 核心 ' + (gpu.core_c ?? 'N/A') + '°C / 显存 ' + (gpu.memory_supported ? gpu.memory_c + '°C' : 'N/A')).join(' · ') : event.message || JSON.stringify(event);
+          box.append(el('div', 'log-row', fmtDateTime(event.timestamp) + '  ' + event.type + '  ' + summary));
+        }
+        if (!box.children.length) box.textContent = '尚无温度日志';
+      } catch (error) { box.textContent = '温度日志读取失败：' + error.message; }
+    }
+    const openThermal = () => { $('thermal-dialog').showModal(); loadThermalLog(); };
+    $('thermal-log-open').addEventListener('click', openThermal);
+    $('kpi-temp').addEventListener('click', openThermal);
+    $('thermal-log-close').addEventListener('click', () => $('thermal-dialog').close());
+
+    // —— 写操作 ——
+    let writeCsrf = null, switchPending = false;
+    async function writeRequest(path, body) {
+      if (!writeCsrf) throw new Error('监控会话尚未就绪');
+      const response = await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': writeCsrf}, body: JSON.stringify(body)});
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || '监控操作失败');
+      return data;
+    }
+
+
+    // RGB controls: color + enable only. The daemon owns the fixed breathing phase.
+    let rgbData = null, rgbBusy = false, rgbDirty = false;
+    function renderRgb(data) {
+      if (data && !rgbBusy && (!rgbData || !data.ok || (data.updated_at || 0) >= (rgbData.updated_at || 0))) {
+        if (rgbData && (data.color !== rgbData.color || data.enabled !== rgbData.enabled)) $('rgb-result').textContent = '';
+        rgbData = data;
+      }
+      const ok = !!rgbData?.ok;
+      const ready = ok && !offline && !rgbBusy && !!(rigData?.csrf_token || writeCsrf);
+      if (ok && !rgbDirty && !rgbBusy && document.activeElement !== $('rgb-color')) $('rgb-color').value = rgbData.color;
+      $('rgb-state').textContent = !ok ? (rgbData?.error || '正在读取灯光设置') : (rgbData.enabled ? '已开启 · 固定呼吸 · 整机联动' : '灯效已关闭') + (rgbData.applied ? '' : ' · 等待灯控应用');
+      $('rgb-toggle').textContent = rgbData?.enabled === false ? '开启灯效' : '关闭灯效';
+      for (const id of ['rgb-color','rgb-apply','rgb-toggle']) $(id).disabled = !ready;
+      for (const button of document.querySelectorAll('[data-rgb-color]')) {
+        button.disabled = !ready;
+        button.classList.toggle('selected', ok && button.dataset.rgbColor === rgbData.color);
+      }
+    }
+    async function saveRgb(color, enabled) {
+      if (rgbBusy || !rgbData?.ok) return;
+      const csrf = rigData?.csrf_token || writeCsrf;
+      if (!csrf || offline) return;
+      rgbBusy = true; renderRgb();
+      $('rgb-result').textContent = '正在保存灯光设置…';
+      try {
+        const response = await fetch('/api/rgb', {method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':csrf},body:JSON.stringify({color,enabled})});
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || '灯光设置失败');
+        rgbData = result; rgbDirty = false;
+        $('rgb-result').textContent = enabled ? '已保存颜色，保持固定呼吸；下次开机自动恢复。' : '已保存关闭灯效；下次开机保持关闭。';
+      } catch (error) { $('rgb-result').textContent = '未完成：' + error.message; }
+      finally { rgbBusy = false; renderRgb(); }
+    }
+    $('rgb-color').addEventListener('input', () => { rgbDirty = true; });
+    $('rgb-apply').addEventListener('click', () => saveRgb($('rgb-color').value, rgbData?.enabled !== false));
+    $('rgb-toggle').addEventListener('click', () => saveRgb(rgbData.color, !rgbData.enabled));
+    for (const button of document.querySelectorAll('[data-rgb-color]')) button.addEventListener('click', () => {
+      $('rgb-color').value = button.dataset.rgbColor; rgbDirty = true;
+      saveRgb(button.dataset.rgbColor, rgbData?.enabled !== false);
+    });
+
+    // —— CPU 矿工线程 ——
+    for (let threads = 1; threads <= 12; threads++) { const option = el('option', '', threads + ' 线程'); option.value = String(threads); $('noid-threads').append(option); }
+    let noidBusy = false, noidReady = false;
+    function syncNoidControls() { const disabled = noidBusy || !noidReady; $('noid-threads').disabled = disabled; $('noid-apply').disabled = disabled; }
+    function renderNoidControl(noid) {
+      $('noid-panel').hidden = !noid;
+      if (!noid) { noidReady = false; syncNoidControls(); return; }
+      const sample = noid.telemetry || {};
+      $('noid-service').textContent = '服务 ' + (noid.service || 'unknown') + ' · PID ' + (noid.pid || '—') + ' · ' + (sample.status || '等待采样');
+      if (Number.isInteger(noid.threads) && document.activeElement !== $('noid-threads')) $('noid-threads').value = String(noid.threads);
+      noidReady = ['active', 'inactive', 'failed'].includes(noid.service) && Number.isInteger(noid.max_threads) && noid.max_threads >= 1 && Number.isInteger(noid.threads) && noid.threads >= 1 && noid.threads <= noid.max_threads;
+      syncNoidControls();
+    }
+    $('noid-apply').addEventListener('click', async () => {
+      if (noidBusy || !noidReady) return;
+      noidBusy = true; syncNoidControls(); $('noid-result').textContent = '正在应用…';
+      try {
+        const result = await writeRequest('/api/noid/threads', {threads: Number($('noid-threads').value)});
+        $('noid-result').textContent = '已设为 ' + result.threads + ' 线程；服务 ' + result.service + (result.service === 'active' ? '；约 2 分钟后显示新算力' : '');
+        await poll();
+      } catch (error) { $('noid-result').textContent = error.message; noidReady = false; await poll(); }
+      finally { noidBusy = false; syncNoidControls(); }
+    });
+
+    // —— 调节：GPU 核心频率 / 功耗上限与风扇调速，统一走 /api/tune ——
+    let lastTuning = null, tunePending = false;
+    const tuneMessages = new Map(), tuneTaps = new WeakMap();
+    const TUNE_DEBOUNCE_MS = 400;
+    function tuneButton(text, action, target, label, extraClass = '') {
+      const button = el('button', 'tune-btn' + (extraClass ? ' ' + extraClass : ''), text); button.type = 'button'; button.disabled = true;
+      button.setAttribute('aria-label', label);
+      Object.assign(button.dataset, target, {action});
+      button.addEventListener('click', onTuneClick);
+      // 触屏按下态：WebKitGTK 触摸时 :active 不一定生效，补一个 pressed 类
+      button.addEventListener('pointerdown', () => { if (!button.disabled) button.classList.add('pressed'); });
+      for (const type of ['pointerup', 'pointercancel', 'pointerleave']) button.addEventListener(type, () => button.classList.remove('pressed'));
+      return button;
+    }
+    function tuneRow(key, name, target, resetText, subject) {
+      const row = el('div', 'tune-row'); row.dataset.tuneRow = key;
+      const head = el('div', 'tune-name'), title = el('strong', '', name);
+      const mark = el('span', 'tune-mark'); mark.dataset.tune = key + '-mark'; mark.hidden = true; title.append(mark);
+      const note = el('small'); note.dataset.tune = key + '-note'; head.append(title, note);
+      const controls = el('div', 'tune-controls'), value = el('div', 'tune-value', '—'); value.dataset.tune = key + '-value';
+      const down = tuneButton('－', 'down', target, '降低' + subject), up = tuneButton('＋', 'up', target, '提高' + subject);
+      const reset = tuneButton(resetText, 'reset', target, resetText + '：' + subject, 'tune-reset');
+      down.dataset.tune = key + '-down'; up.dataset.tune = key + '-up'; reset.dataset.tune = key + '-reset';
+      controls.append(down, value, up, reset); row.append(head, controls);
+      return row;
+    }
+    // 按步长取下一档：先对齐到步长整数倍，再夹在 [lo, hi]；无法移动则返回 null
+    function stepValue(base, step, dir, lo, hi) {
+      if (![base, step, lo, hi].every(Number.isFinite) || step <= 0) return null;
+      lo = Math.ceil(lo); hi = Math.floor(hi);
+      if (lo > hi) return null;
+      let next = dir > 0 ? Math.floor(base / step) * step + step : Math.ceil(base / step) * step - step;
+      next = Math.min(hi, Math.max(lo, next));
+      return Number.isInteger(next) && (dir > 0 ? next > base : next < base) ? next : null;
+    }
+    function clockNext(clock, dir) {
+      const step = clock.step_mhz || 50, lo = clock.min_allowed_mhz, hi = clock.max_allowed_mhz;
+      if (clock.locked_max_mhz != null) return stepValue(clock.locked_max_mhz, step, dir, lo, hi);
+      if (dir > 0 || ![lo, hi].every(Number.isFinite)) return null;  // 原厂状态已是最高上限
+      // 从原厂状态第一次降低：以当前实时频率向下取整到 50 MHz；待机低频或已在顶格时退一档
+      const current = clock.current_mhz;
+      const start = Number.isFinite(current) && current >= lo ? Math.floor(current / step) * step : null;
+      return start != null && start < hi ? Math.max(Math.ceil(lo), start) : stepValue(hi, step, -1, lo, hi);
+    }
+    const findTuneGpu = index => lastTuning?.ok ? (lastTuning.gpus || []).find(item => String(item.index) === String(index)) : null;
+    const findTuneFan = group => lastTuning?.ok ? (lastTuning.fans || []).find(item => item.group === group) : null;
+    // 按当前调节状态把按钮意图换算成 /api/tune 请求体；不可执行返回 null（同时用于按钮禁用判断）
+    function planTune(d) {
+      const reset = d.action === 'reset', dir = d.action === 'up' ? 1 : -1;
+      if (d.kind === 'fan') {
+        const fan = findTuneFan(d.group);
+        if (!fan) return null;
+        if (reset) return fan.saved_percent == null && fan.percent === fan.default_percent ? null : {kind: 'fan', group: fan.group, action: 'reset'};
+        const value = stepValue(fan.percent, fan.step_percent || 5, dir, fan.min_percent ?? 30, fan.max_percent ?? 100);
+        return value == null ? null : {kind: 'fan', group: fan.group, action: 'set', value};
+      }
+      const gpu = findTuneGpu(d.gpu);
+      if (!gpu || !Number.isInteger(gpu.index)) return null;
+      if (d.kind === 'gpu_clock') {
+        // 驱动读不到限频值：面板外设过的 -lgc 也显示为“原厂”，所以恢复原厂始终可按（-rgc 可重复执行）
+        if (reset) return {kind: 'gpu_clock', gpu: gpu.index, action: 'reset'};
+        const value = clockNext(gpu.clock || {}, dir);
+        return value == null ? null : {kind: 'gpu_clock', gpu: gpu.index, action: 'set', value};
+      }
+      if (d.kind === 'gpu_power') {
+        const power = gpu.power || {};
+        if (reset) return power.saved_w == null && Math.round(power.limit_w) === Math.round(power.default_w) ? null : {kind: 'gpu_power', gpu: gpu.index, action: 'reset'};
+        // 驱动报 N/A 时 limit_w 为 null，Math.round(null) 会变成 0，按＋反而会降到最低值
+        const base = Number.isFinite(power.limit_w) ? Math.round(power.limit_w) : NaN;
+        const value = stepValue(base, power.step_w || 10, dir, power.min_w, power.max_w);
+        return value == null ? null : {kind: 'gpu_power', gpu: gpu.index, action: 'set', value};
+      }
+      return null;
+    }
+    function describeTune(body) {
+      const who = body.kind === 'fan' ? (findTuneFan(body.group)?.label || body.group) : gpuTitle({index:Number(body.gpu)});
+      if (body.kind === 'gpu_clock') return body.action === 'reset' ? '正在把 ' + who + ' 核心频率恢复原厂…' : '正在把 ' + who + ' 核心频率上限设为 ' + body.value + ' MHz…';
+      if (body.kind === 'gpu_power') return body.action === 'reset' ? '正在把 ' + who + ' 功耗上限恢复默认…' : '正在把 ' + who + ' 功耗上限设为 ' + body.value + ' W…';
+      return body.action === 'reset' ? '正在把' + who + '恢复默认转速…' : '正在把' + who + '设为 ' + body.value + '%…';
+    }
+    function acceptTuning(tuning) {
+      const next = tuning && typeof tuning === 'object' ? tuning : {ok: false, error: '调节服务不可用：监控后端未提供调节数据'};
+      // 轮询与调节请求可能交错返回：不让较旧的快照覆盖刚写入后的状态
+      if (next.ok && lastTuning?.ok && Number.isFinite(next.updated_at) && Number.isFinite(lastTuning.updated_at) && next.updated_at < lastTuning.updated_at) return;
+      lastTuning = next;
+    }
+    function onTuneClick(event) {
+      const button = event.currentTarget, now = performance.now(), previous = tuneTaps.get(button);
+      tuneTaps.set(button, now);
+      if (previous != null && now - previous < TUNE_DEBOUNCE_MS) return;  // X11 触屏可能重复投递 click
+      if (tunePending || button.disabled) return;
+      const body = planTune(button.dataset);
+      if (body) sendTune(body.kind === 'fan' ? 'fans' : 'gpu-' + body.gpu, body);
+    }
+    async function sendTune(key, body) {
+      tunePending = true;
+      tuneMessages.set(key, {text: describeTune(body), kind: 'busy'});
+      renderTuning();
+      try {
+        const data = await writeRequest('/api/tune', body);
+        if (data.tuning && typeof data.tuning === 'object') lastTuning = data.tuning;
+        tuneMessages.set(key, {text: (data.message || '调节已生效') + ' · ' + fmtTime(Date.now() / 1000), kind: 'ok'});
+      } catch (error) { tuneMessages.set(key, {text: '调节失败：' + error.message, kind: 'error'}); }
+      finally { tunePending = false; renderTuning(); }
+    }
+    function setTuneResult(node, key, fallback) {
+      const stored = tuneMessages.get(key);
+      // 服务不可用时，旧的成功提示让位给当前错误；进行中与失败提示保留
+      const message = stored && !(fallback && stored.kind === 'ok') ? stored : null;
+      node.textContent = message ? message.text : fallback || '';
+      node.className = 'tune-result' + (message ? ' ' + message.kind : fallback ? ' error' : '');
+    }
+    function setTuneButtons(scope, key, target, available) {
+      for (const action of ['down', 'up', 'reset']) {
+        const button = scope.querySelector('[data-tune="' + key + '-' + action + '"]');
+        if (button) button.disabled = tunePending || !available || planTune({...target, action}) == null;
+      }
+    }
+    // 助手部分失败（如状态文件损坏）时数据仍在，也要把告警常驻显示
+    function setTuneWarn(node) {
+      const errors = lastTuning?.ok && Array.isArray(lastTuning.errors) ? lastTuning.errors.filter(Boolean) : [];
+      node.hidden = !errors.length; node.textContent = errors.length ? '注意：' + errors.join('；') : '';
+    }
+    function setTuneMark(scope, key, text, atDefault) {
+      const mark = scope.querySelector('[data-tune="' + key + '-mark"]');
+      mark.hidden = !text; mark.textContent = text || ''; mark.classList.toggle('at-default', Boolean(atDefault));
+    }
+    function tuneCard(gpu) {
+      const card = el('article', 'card sec'); card.dataset.index = String(gpu.index);
+      const head = el('div', 'sec-head'), title = el('h2'); title.dataset.f = 'title'; const note = el('p', '', '调节立即生效；开机按每卡预设功率恢复');
+      head.append(title, note);
+      const block = el('div', 'tune-block'), target = {gpu: String(gpu.index)}, subject = gpuTitle(gpu) + ' ';
+      const warn = el('div', 'tune-warn'); warn.dataset.tune = 'warn'; warn.hidden = true; warn.setAttribute('role', 'status');
+      const result = el('div', 'tune-result'); result.dataset.tune = 'result'; result.setAttribute('role', 'status'); result.setAttribute('aria-live', 'polite');
+      block.append(tuneRow('clock', '核心频率上限', {...target, kind: 'gpu_clock'}, '恢复原厂', subject + '核心频率上限'),
+        tuneRow('power', '功耗上限', {...target, kind: 'gpu_power'}, '恢复出厂', subject + '功耗上限'), warn, result);
+      card.append(head, block);
+      return card;
+    }
+    function renderGpuTune(card) {
+      const block = card.querySelector('.tune-block'), q = name => block.querySelector('[data-tune="' + name + '"]');
+      const index = card.dataset.index, gpu = findTuneGpu(index), live = (last?.gpus || []).find(item => String(item.index) === index);
+      const owner = (last?.projects || []).find(p => p.active && p.gpu_indices.includes(Number(index)));
+      setF(card, 'title', gpuTitle({index:Number(index)}) + (owner ? ' · ' + owner.symbol : '') + (live ? ' · ' + fmt(live.temperature, 0) + '°C · ' + fmt(live.power, 0) + ' W' : ''));
+      block.setAttribute('aria-busy', String(tunePending));
+      if (gpu) {
+        const clock = gpu.clock || {}, power = gpu.power || {};
+        q('clock-value').textContent = clock.locked_max_mhz != null ? '上限 ' + clock.locked_max_mhz + ' MHz' : '原厂（当前 ' + fmt(clock.current_mhz, 0) + ' MHz）';
+        q('clock-note').textContent = '实时 ' + fmt(clock.current_mhz, 0) + ' MHz · 硬件上限 ' + fmt(clock.hw_max_mhz, 0) + ' MHz · 每档 ' + (clock.step_mhz || 50) + ' MHz' + (clock.locked_max_mhz == null ? ' · 仅识别本面板设过的上限' : '');
+        setTuneMark(block, 'clock', clock.locked_max_mhz != null ? '已限频' : '原厂', clock.locked_max_mhz == null);
+        q('power-value').textContent = fmt(power.limit_w, 0) + ' W';
+        q('power-note').textContent = '实时 ' + fmt(power.draw_w, 0) + ' W · 可调 ' + fmt(power.min_w, 0) + '–' + fmt(power.max_w, 0) + ' W · 每档 ' + (power.step_w || 10) + ' W';
+        setTuneMark(block, 'power', Number.isFinite(power.default_w) ? '出厂 ' + fmt(power.default_w, 0) + ' W' : '', Math.round(power.limit_w) === Math.round(power.default_w));
+      } else for (const key of ['clock', 'power']) { q(key + '-value').textContent = '—'; q(key + '-note').textContent = '调节不可用'; setTuneMark(block, key, '', false); }
+      for (const [key, kind] of [['clock', 'gpu_clock'], ['power', 'gpu_power']]) setTuneButtons(block, key, {kind, gpu: index}, Boolean(gpu));
+      setTuneWarn(q('warn'));
+      setTuneResult(q('result'), 'gpu-' + index, !lastTuning?.ok ? (lastTuning?.error || '调节服务不可用') : gpu ? '' : '调节服务未返回 ' + gpuTitle({index:Number(index)}));
+    }
+    function renderFanTune() {
+      const rows = $('fan-tune-rows'), empty = $('fan-tune-empty');
+      const fans = lastTuning?.ok ? (lastTuning.fans || []).filter(fan => fan.group === 'cpu' || fan.group === 'gpu_ext') : [];
+      $('fan-tune').setAttribute('aria-busy', String(tunePending));
+      const wanted = new Set(fans.map(fan => fan.group));
+      for (const child of [...rows.children]) if (!wanted.has(child.dataset.group)) child.remove();
+      for (const [position, fan] of fans.entries()) {
+        const key = 'fan-' + fan.group;
+        let row = [...rows.children].find(child => child.dataset.group === fan.group);
+        if (!row) { row = tuneRow(key, fan.label || fan.group, {kind: 'fan', group: fan.group}, '恢复默认', fan.label || fan.group); row.dataset.group = fan.group; }
+        if (rows.children[position] !== row) rows.insertBefore(row, rows.children[position] || null);
+        const q = name => row.querySelector('[data-tune="' + key + '-' + name + '"]');
+        q('value').textContent = fmt(fan.percent, 0) + '%';
+        q('note').textContent = ((fan.rpm || []).map(value => fmt(value, 0) + ' RPM').join(' / ') || 'RPM 不可读') + ' · 通道 ' + (fan.channels || []).join('+') + ' · ' + (fan.manual ? '手动' : 'BIOS 自动') + ' · 可调 ' + (fan.min_percent ?? 30) + '–' + (fan.max_percent ?? 100) + '% · 每档 ' + (fan.step_percent || 5) + '%';
+        setTuneMark(row, key, Number.isFinite(fan.default_percent) ? '默认 ' + fan.default_percent + '%' : '', fan.percent === fan.default_percent);
+        setTuneButtons(row, key, {kind: 'fan', group: fan.group}, true);
+      }
+      empty.hidden = fans.length > 0;
+      empty.textContent = !lastTuning ? '读取中' : !lastTuning.ok ? '风扇调速不可用' : '主板风扇调速不可用';
+      setTuneWarn($('fan-tune-warn'));
+      setTuneResult($('fan-tune-result'), 'fans', lastTuning && !lastTuning.ok ? (lastTuning.error || '调节服务不可用') : '');
+    }
+    function renderTuning() {
+      for (const card of $('tune-gpus').children) if (card.dataset.index != null) renderGpuTune(card);
+      renderFanTune();
+    }
+
+    // —— 换币提醒阈值与旧的一键切币（仅 TSC↔PRL 整机切换，后端给出推荐时才出现） ——
+    function renderProfitControls(data) {
+      const p = data.profitability || {};
+      if (Number.isFinite(p.threshold_usd_per_day) && document.activeElement !== $('profit-threshold')) $('profit-threshold').value = p.threshold_usd_per_day.toFixed(2);
+      const button = $('switch-miner'), reached = Boolean(p.threshold_reached && p.best_alternative_symbol);
+      button.hidden = !reached; button.disabled = !reached || switchPending;
+      button.dataset.symbol = reached ? p.best_alternative_symbol : '';
+      button.textContent = reached ? '一键切到 ' + p.best_alternative_symbol : '等待收益对比';
+      $('profit-alert').textContent = reached ? '整机切到 ' + p.best_alternative_symbol + ' 估算可多约 $' + fmt(p.alternative_delta_usd_per_day, 2) + '/天；会停掉当前矿工再启动它。' : p.current_symbol ? '' : '一键切币只管 TSC 与 PRL 之间的整机切换，现在在挖的币不在这个范围；换币按各币项目说明操作，对比见“行情雷达”。';
+    }
+    $('profit-threshold-save').addEventListener('click', async () => {
+      $('profit-status').textContent = '正在保存…';
+      try {
+        const data = await writeRequest('/api/profit-threshold', {threshold_usd_per_day: $('profit-threshold').value});
+        $('profit-threshold').value = Number(data.threshold_usd_per_day).toFixed(2);
+        $('profit-status').textContent = '已保存：每张卡多出 $' + Number(data.threshold_usd_per_day).toFixed(2) + '/天时提醒。';
+        poll();
+      } catch (error) { $('profit-status').textContent = error.message; }
+    });
+    $('switch-miner').addEventListener('click', async () => {
+      const symbol = $('switch-miner').dataset.symbol;
+      if (!symbol || switchPending) return;
+      if (!window.confirm('确认停止当前矿工并启动 ' + symbol + '？')) return;
+      switchPending = true; $('switch-miner').disabled = true; $('switch-miner').textContent = '正在切换…';
+      $('profit-status').textContent = '正在停止当前矿工，确认 GPU 释放后启动 ' + symbol + '。';
+      try { const result = await writeRequest('/api/mining/switch', {symbol}); $('profit-status').textContent = '已切换至 ' + result.symbol + '；正在读取新矿工服务状态。'; await poll(); }
+      catch (error) { $('profit-status').textContent = error.message; }
+      finally { switchPending = false; poll(); }
+    });
+
+    // —— 交易所 ——
+    let pendingOrder = null;
+    const pairName = {prlusdt: 'PRL → USDT', prlbtc: 'PRL → BTC', tscusdt: 'TSC → USDT', tscbtc: 'TSC → BTC'};
+    function renderExchange(data) {
+      const exchange = data.exchange || {}, api = exchange.public_api || {};
+      writeCsrf = exchange.csrf_token || null;
+      const banner = $('exchange-status'), ready = api.state === 'public_api_ready';
+      banner.className = 'exchange-status' + (ready ? ' ready' : '');
+      banner.textContent = (ready ? '公共接口已连通；账户 ' + (exchange.account_status || '未接入') : exchange.diagnosis ||
+        (api.state === 'unavailable' ? '交易所公共接口当前不可用。' : '正在检查交易所接口。')) +
+        (exchange.diagnosis ? ' 要恢复只能请交易所放行本机出口 IP，或换一个它不拦的出口；在那之前，报价用聚合源，查余额和卖出请在浏览器里登录交易所。' : '') +
+        ' 账户适配器按需启用；交易默认关闭。' + (api.checked_at ? ' · ' + fmtTime(api.checked_at) + ' 检查' : '');
+      const balances = exchange.balances;
+      $('exchange-balances').textContent = Array.isArray(balances) ? (balances.filter(b => Number(b.balance) > 0).map(b => b.currency + ' ' + b.balance).join(' · ') || '已核验：余额为零') : '接口不通，无法读取';
+      const deposits = exchange.deposits;
+      $('exchange-deposits').textContent = Array.isArray(deposits) ? (deposits.length ? deposits.slice(0, 3).map(d => (d.currency || '资产') + ' ' + (d.amount || '—') + ' · ' + (d.state || '状态未知')).join(' · ') : '已核验：暂无记录') : '接口不通，无法读取';
+      const trades = exchange.trades, withdrawals = exchange.withdrawals;
+      $('exchange-history').textContent = Array.isArray(trades) && Array.isArray(withdrawals) ? '成交 ' + trades.length + ' 笔 · 提现 ' + withdrawals.length + ' 笔（最近记录）' : '接口不通，无法读取';
+      const book = exchange.beneficiaries;
+      $('exchange-beneficiaries').textContent = Array.isArray(book) ? (book.length ? book.length + ' 个：' + book.slice(0, 3).map(b => (b.name || '未命名') + '（' + (b.currency || b.blockchain_key || '—') + '）').join(' · ') : '已核验：地址簿为空') : '接口不通，无法读取';
+      const usable = exchange.trading_enabled === true && exchange.trade_status === '已准备' && writeCsrf && Array.isArray(exchange.pairs);
+      const picker = $('order-market'), chosen = picker.value, pairs = usable ? exchange.pairs.filter(pair => pairName[pair]) : [];
+      if ([...picker.options].map(option => option.value).join(',') !== pairs.join(',')) {
+        picker.replaceChildren();
+        if (!pairs.length) { const option = el('option', '', '等待交易所实时确认'); option.value = ''; picker.append(option); }
+        for (const pair of pairs) { const option = el('option', '', pairName[pair]); option.value = pair; picker.append(option); }
+        if (pairs.includes(chosen)) picker.value = chosen;
+      }
+      for (const id of ['order-market', 'order-amount', 'order-price', 'order-preview']) $(id).disabled = !pairs.length;
+      $('order-submit').disabled = !pendingOrder || !pairs.length;
+      const tab = $('tabs').querySelector('[data-view="exchange"]');
+      tab.textContent = '交易所';
+    }
+    $('order-preview').addEventListener('click', async () => {
+      pendingOrder = null; $('order-submit').disabled = true;
+      try {
+        const data = await writeRequest('/api/exchange/order/preview', {market: $('order-market').value, amount: $('order-amount').value, price: $('order-price').value});
+        pendingOrder = data;
+        $('exchange-result').textContent = '预览：卖出 ' + data.amount + ' ' + data.market.toUpperCase() + '，限价 ' + data.price + '，成交前总额上限参考 ' + data.gross_quote + '。' + data.fee_note + '；90 秒内确认。';
+        $('order-submit').disabled = false;
+      } catch (error) { $('exchange-result').textContent = error.message; }
+    });
+    $('order-submit').addEventListener('click', async () => {
+      const preview = pendingOrder;
+      if (!preview) return;
+      if (!window.confirm('确认向 SafeTrade 提交限价卖单：' + preview.market.toUpperCase() + '，数量 ' + preview.amount + '，价格 ' + preview.price + '？')) return;
+      pendingOrder = null; $('order-submit').disabled = true;
+      try { const data = await writeRequest('/api/exchange/order/submit', {preview_token: preview.preview_token}); $('exchange-result').textContent = '已提交订单 ' + data.id + ' · ' + (data.state || '状态待刷新') + '。请核对交易所订单记录。'; }
+      catch (error) { $('exchange-result').textContent = error.message; }
+    });
+    for (const id of ['order-market', 'order-amount', 'order-price']) $(id).addEventListener('input', () => { pendingOrder = null; $('order-submit').disabled = true; });
+
+    // —— 主循环 ——
+    let uiVersion = null, reloading = false;
+    // 后台换了新页面：已打开的窗口自己刷新。先确认新页面取得到再刷，免得服务还在重启时刷成错误页
+    async function reloadWhenReady() {
+      if (reloading) return;
+      reloading = true;
+      try { const response = await fetch('/', {cache: 'no-store'}); if (response.ok) { location.reload(); return; } } catch (error) { /* 下一轮再试 */ }
+      reloading = false;
+    }
+    let rigData = null, rigBusy = false, rigReadAt = 0;
+    function rigCard(item) {
+      const card = el('article', 'card sec');
+      card.append(el('h2', 'rig-title'), el('p', 'hint rig-meta'), el('div', 'rig-actions'));
+      return card;
+    }
+    function drawRigCard(card, item) {
+      const [uuid, info] = item;
+      if (info.pending) {
+        card.querySelector('h2').textContent = info.label;
+        card.querySelector('p').textContent = info.display_state + (info.pause_reason ? ' · ' + info.pause_reason : '') + (info.expected_slot ? ' · ' + info.expected_slot : '');
+        card.querySelector('.rig-actions').replaceChildren(el('span', 'tag', info.mining_paused ? '等待供电处理后恢复' : '符合条件的新卡将自动归位'));
+        return;
+      }
+      const live = (last?.gpus || []).find(g => g.uuid === uuid);
+      card.querySelector('h2').textContent = (live ? gpuTitle(live) + ' · ' + live.name : info.label || uuid.slice(-12));
+      const active = info.active_symbols || Object.entries(info.profiles || {}).filter(([symbol, unit]) => info.services?.[unit] === 'active').map(([symbol]) => symbol);
+      const services = Object.entries(info.services || {}).filter(([, state]) => state === 'active').map(([unit]) => unit);
+      card.querySelector('p').textContent = (info.present ? '在线' : '驱动未识别') + ' · ' + (active.length ? active.join(' + ') : services.length ? services.join('、') : '未挖矿') +
+        (live ? ' · ' + fmt(live.temperature, 0) + '°C · ' + fmt(live.power, 0) + ' W' : '') + '\n' +
+        '开机选择：' + (info.desired || '沿用已启用的服务') + ((info.compute_owners || []).some(owner => !(owner in (info.services || {}))) ? ' · 有其他计算任务，切换将被拦截' : '');
+      const actions = card.querySelector('.rig-actions');
+      const profiles = Array.isArray(info.profiles) ? info.profiles : Object.keys(info.profiles || {});
+      sync(actions, [...profiles, 'STOP'], x => x, symbol => {
+        const button = el('button', 'ui-button', symbol === 'STOP' ? '停止挖矿' : '改挖 ' + symbol);
+        button.type = 'button'; button.addEventListener('click', () => rigAction('/api/rig/assign', {gpu_uuid:uuid, symbol}, '正在处理 ' + gpuTitle((last?.gpus || []).find(g => g.uuid === uuid) || {uuid}) + '…'));
+        return button;
+      }, (button, symbol) => {
+        const selected = symbol !== 'STOP' && active.includes(symbol);
+        button.classList.toggle('selected', selected);
+        button.textContent = symbol === 'STOP' ? '停止挖矿' : selected ? symbol + ' 运行中' : '改挖 ' + symbol;
+        const foreign = (info.compute_owners || []).some(owner => !(owner in (info.services || {})));
+        button.disabled = rigBusy || offline || !rigData?.csrf_token || !info.present || selected || (foreign && symbol !== 'STOP') || Date.now() - rigReadAt > 15000;
+      });
+    }
+    function renderRig() {
+      const d = rigData || {};
+      renderRgb();
+      $('rig-control-state').textContent = d.configured ? (d.label || '本机控制') + ' · 按 GPU 身份绑定' : d.error || '未配置逐卡控制，先登记这台机器的 GPU 和矿工服务';
+      sync($('rig-control-gpus'), displayRigEntries(d), x => x[0], rigCard, drawRigCard);
+      $('rig-update-check').disabled = rigBusy || offline || !d.configured || !d.csrf_token;
+      const updates = d.updates?.miners || d.updates || {};
+      const rows = Object.entries(updates).filter(([, value]) => value && typeof value === 'object' && !Array.isArray(value));
+      const list = $('rig-update-list');
+      if (rows.length && !list.children.length) list.textContent = '';
+      sync(list, rows, x => x[0], () => {
+        const card = el('div', 'cell'); card.append(el('strong'), el('p','hint'), el('button','ui-button')); return card;
+      }, (card, [id, info]) => {
+        card.querySelector('strong').textContent = info.name || ({WildRig:'PRL · WildRig',TSC:'TSC · Racer',QTC:'QTC · Quanpool Miner',NOID:'NOID · INVminer（CPU）'}[id]) || id;
+        card.querySelector('p').textContent = ['当前 ' + (info.current_version || info.installed_version || '待核对'), '最新 ' + (info.version || info.latest_version || info.tag || '待检查'), info.error || info.reason || ({available:'有新版本',up_to_date:'已是最新版本',unavailable:'暂无法校验更新'}[info.status]) || info.status || '', info.checked_at ? '检查于 ' + fmtDateTime(info.checked_at) : ''].filter(Boolean).join(' · ');
+        const button = card.querySelector('button'); button.type = 'button'; button.textContent = '升级到 ' + (info.version || info.latest_version || info.tag || '新版本');
+        button.disabled = rigBusy || offline || !d.csrf_token || !(info.upgrade_available || info.available || info.status === 'available') || !info.release_id;
+        button.onclick = () => rigAction('/api/rig/upgrade', {miner_id:id, release_id:info.release_id}, '正在校验并升级 ' + id + '，请等待启动检查…');
+      });
+      if (!rows.length) list.textContent = '尚无已接入的升级适配器；现有矿工继续运行。';
+      renderPoolNotices();
+    }
+    function renderPoolNotices() {
+      const notices = rigData?.notices || {}, rows = Object.entries(notices);
+      const unread = rows.reduce((n,[,row]) => n + (row.new || []).length, 0);
+      const canWrite = !rigBusy && !offline && !!rigData?.csrf_token;
+      $('pool-notice-check').disabled = !canWrite;
+      $('pool-notice-read').disabled = !canWrite || !unread;
+      $('pool-notice-summary').textContent = rows.length ? (unread ? unread + ' 条未读更新。确认阅读后再标已读。' : '没有未读更新；以下为已获取的官方历史公告。') : '公告尚未完成首次同步。';
+      sync($('pool-notice-list'), rows, row => row[0], () => {
+        const card = el('div', 'cell'); card.append(el('strong'), el('p', 'hint'), el('div', 'page-grid'), el('a','hint'));return card;
+      }, (card,[symbol,info]) => {
+        card.querySelector('strong').textContent = symbol + ' · ' + info.source + ((info.new || []).length ? ' · ' + info.new.length + ' 条未读' : '');
+        card.querySelector('p').textContent = (info.status === 'error' ? '抓取失败，保留上次内容' : info.status === 'baseline' ? '首次同步 · 历史基线' : info.status === 'unchecked' ? '尚未同步' : '已同步') +
+          (info.stale ? ' · 缓存未取得或已过期' : '') + (info.last_success_at ? ' · 上次成功 ' + fmtDateTime(info.last_success_at) : '') + (info.overflow ? ' · 历史变化超过保留上限，请核对官方来源' : '');
+        const group = card.querySelector('div'), seen = new Set(), entries=[];
+        for (const entry of [...(info.new || []), ...(info.entries || [])]) { if (!seen.has(entry.id)) { entries.push(entry);seen.add(entry.id); } }
+        sync(group, entries.slice(0,Math.max(6,(info.new || []).length)), entry => entry.id, () => { const item=el('div','rig-meta');item.append(el('b'),el('p','hint'),el('small','hint'));return item; }, (item,entry) => {
+          item.querySelector('b').textContent = ((info.new || []).some(row=>row.id===entry.id) ? '未读 · ' : '') + entry.title;
+          item.querySelector('p').textContent = entry.text || '';
+          item.querySelector('small').textContent = (entry.published_at ? '矿池发布：' + entry.published_at : '矿池未提供发布时间') + (entry.discovered_at ? ' · 本机发现：' + fmtDateTime(entry.discovered_at) : '');
+        });
+        if (!entries.length) group.textContent = info.status === 'error' ? '暂时无法读取公告。' : '官方当前未发布公告内容。';
+        else for (const node of [...group.childNodes]) if (node.nodeType === Node.TEXT_NODE) node.remove();
+        const link=card.querySelector('a');link.textContent='查看官方来源 ↗';link.target='_blank';link.rel='noopener noreferrer';
+        link.removeAttribute('href'); try { const url=new URL(info.url); if (url.protocol==='https:') link.href=url.href; } catch (_) {}
+      });
+    }
+    $('pool-notice-check').addEventListener('click', () => rigAction('/api/rig/notices/check', {}, '正在检查官方矿池公告；15 分钟内重复点击使用缓存。'));
+    $('pool-notice-read').addEventListener('click', () => rigAction('/api/rig/notices/read', {seen:Object.fromEntries(Object.entries(rigData?.notices || {}).map(([source,info])=>[source,(info.new || []).map(row=>row.id)]))}, '正在保存已读状态…'));
+    async function rigAction(path, body, message) {
+      if (rigBusy || offline || !rigData?.csrf_token) return;
+      rigBusy = true; $('rig-operation').textContent = message; renderRig();
+      try {
+        const response = await fetch(path, {method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':rigData.csrf_token}, body:JSON.stringify(body)});
+        const result = await response.json(); if (!response.ok) throw new Error(result.error || 'HTTP ' + response.status);
+        $('rig-operation').textContent = result.message || (result.pending || result.pending_gpus?.length ? '服务已启动，显卡仍在等待计算任务；请继续核对算力和新份额。' : result.symbol === 'STOP' ? '受控矿工已停止并禁用开机启动。' + (result.remaining_compute ? ' 其他计算任务继续保留。' : '') : path.endsWith('/notices/check') ? '矿池公告检查完成，来源状态见下方。' : path.endsWith('/notices/read') ? '当前已知公告已标为已读。' : path.endsWith('check-updates') ? '官方版本检查完成。' : path.endsWith('upgrade') ? (result.restarted_services?.length === 0 ? '已安装 ' + (result.tag || '新版本') + '；相关矿工保持停止。' : '软件启动检查完成，请继续核对算力和新份额。') : '服务与开机选择已处理，请在总览核对算力和新份额。');
+      } catch (error) { $('rig-operation').textContent = '操作未完成：' + error.message; }
+      finally { rigBusy = false; await pollRig(); await poll(); }
+    }
+    $('rig-update-check').addEventListener('click', () => rigAction('/api/rig/check-updates', {}, '正在检查已登记矿工的官方发布…'));
+    async function pollRig() {
+      if (rigBusy) return;
+      try {
+        const response = await fetch('/api/rig', {cache:'no-store'});
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        rigData = await response.json(); rigReadAt = Date.now(); renderRig();
+      } catch (error) {
+        rigData = null; renderRig(); $('rig-control-state').textContent = '控制服务不可用：' + error.message;
+      }
+    }
+
+    const firstGpu = p => p.gpu_indices.length ? Math.min(...p.gpu_indices) : 99;
+    function update(data) {
+      if (data.ui_version) { if (uiVersion && uiVersion !== data.ui_version) { reloadWhenReady(); return; } uiVersion = data.ui_version; }
+      last = data; offline = false; document.body.classList.remove('offline');
+      // 在挖的排前面；各区块各画各的，一处出错不拖累其余，也不冒充“服务断线”
+      const projects = [...(data.projects || [])].sort((a, b) => (b.active - a.active) || (firstGpu(a) - firstGpu(b)) || a.symbol.localeCompare(b.symbol));
+      const view = {...data, projects}, active = projects.filter(p => p.active), failed = [];
+      const guard = (name, draw) => { try { draw(); } catch (error) { failed.push(name); console.error(name, error); } };
+      const gpus = orderedGpus(data.gpus), gpuCards = displayGpuCards(data);
+      let serious = 0;
+      guard('顶栏', () => {
+        $('rig-coins').textContent = active.length ? active.map(p => p.symbol).join(' + ') : '未挖矿';
+        $('rig-sub').textContent = gpus.length + ' 张显卡' + (gpus.some(gpu => gpu.mining_paused) ? ' · ' + gpus.filter(gpu => !gpu.mining_paused).length + ' 张挖矿 · ' + gpus.filter(gpu => gpu.mining_paused).length + ' 张已停挖' : '') + (data.noid_cpu?.service === 'active' ? ' · CPU ' + data.noid_cpu.threads + ' 线程' : '') + ' · ' + projects.map(p => p.symbol + (p.active ? ' 运行' : ' 停')).join(' · ');
+        const lag = Date.now() / 1000 - data.generated_at, stale = isNum(lag) && lag > 30;
+        $('fresh').textContent = stale ? '数据停在 ' + fmtTime(data.generated_at) + '（' + Math.round(lag) + ' 秒前），后台没在更新' : '现场数据 ' + fmtTime(data.generated_at) + ' · 每 4 秒刷新'; $('fresh').className = stale ? 'fresh late' : 'fresh';
+      });
+      guard('提醒', () => { serious = renderAlerts(data.alerts || []); });
+      guard('指标', () => renderKpis(view));
+      guard('项目', () => {
+        sync($('projects'), active, p => p.symbol, projectCard, updateProject);
+        if (!active.length) $('projects').append(Object.assign(el('article', 'card sec empty'), {textContent: '当前没有矿工在跑。已配置的项目见“行情雷达”。'}));
+      });
+      guard('显卡', () => sync($('gpu-cards'), gpuCards, gpu => gpu.uuid || ('pending-' + gpu.display_number), gpuCard, updateGpu));
+      guard('CPU', () => renderCpu(data.noid_cpu));
+      const radarView = {...view, projects: radarProjects(view)};
+      guard('雷达摘要', () => { renderMini(radarView); renderRadarSummary(radarView); });
+      guard('行情雷达', () => sync($('watch'), radarView.projects, p => p.symbol, watchCard, updateWatch));
+      guard('对比', () => renderCompare(radarView));
+      guard('榜单', () => renderBoard(radarView));
+      guard('数据源', () => renderFeeds(radarView));
+      guard('系统', () => renderSystem(view));
+      guard('RGB', () => renderRgb(data.rgb));
+      guard('调节', () => { sync($('tune-gpus'), gpuCards, gpu => gpu.pending ? 'pending-' + gpu.display_number : [gpu.uuid, gpu.index, gpu.display_title, Boolean(gpu.mining_paused)].join(':'), gpu => gpu.pending ? pendingTuneCard(gpu) : gpu.mining_paused ? pausedTuneCard(gpu) : tuneCard(gpu), () => {}); acceptTuning(data.tuning); renderTuning(); renderNoidControl(data.noid_cpu); renderProfitControls(view); });
+      $('tabs').querySelector('[data-view="exchange"]').hidden = data.exchange_enabled === false;
+      if (data.exchange_enabled !== false) guard('交易所', () => renderExchange(view));
+      renderRig();
+      if (data.controls_enabled === false) {
+        const chip = el('span', 'chip info'); chip.textContent = '只读模式 · 控制尚未启用'; $('alert-list').append(chip);
+        for (const button of document.querySelectorAll('#view-control button, #view-tune button, #order-submit, #order-preview')) button.disabled = true;
+      }
+      if (failed.length) { const chip = el('span', 'chip warning'); chip.dataset.key = 'render-error'; chip.append(el('span', '', '页面有 ' + failed.length + ' 块没画出来：' + failed.join('、'))); $('alert-list').prepend(chip); }
+      $('rig-dot').className = 'pulse' + ((data.alerts || []).some(alert => alert.level === 'critical') ? ' bad' : serious || failed.length || !active.length ? ' warn' : '');
+    }
+    function goOffline(message) {
+      offline = true; document.body.classList.add('offline');
+      $('rig-dot').className = 'pulse bad';
+      $('fresh').textContent = '监控服务连接失败：' + message + '；画面是旧数据'; $('fresh').className = 'fresh late';
+      $('alert-list').replaceChildren(frag('<span class="chip critical"><span>监控服务连接中断，画面上的数字已不是现场数据</span></span>'));
+      lastTuning = {ok: false, error: '监控服务离线，调节不可用'}; renderTuning();
+      noidReady = false; syncNoidControls(); renderRig(); renderRgb();
+      for (const id of ['switch-miner', 'order-preview', 'order-submit']) $(id).disabled = true;
+    }
+    async function poll() {
+      let data;
+      try {
+        const response = await fetch('/api/status', {cache: 'no-store'});
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        data = await response.json();
+      } catch (error) { goOffline(error.message); return; }
+      update(data);
+    }
+    async function pollHistory() {
+      try {
+        const response = await fetch('/api/history?minutes=360', {cache: 'no-store'});
+        if (response.ok) { history = await response.json(); if (last && !offline) update(last); }
+      } catch (error) { /* 走势图缺一轮不影响现场数据 */ }
+    }
+    setInterval(() => { $('clock').textContent = new Date().toLocaleTimeString('zh-CN', {hour12: false, timeZone: TZ}); }, 1000);
+    poll(); pollHistory(); pollRig(); setInterval(pollRig, 10000); setInterval(poll, 4000); setInterval(pollHistory, 60000); armIdle();
+  </script>
+</body>
+</html>

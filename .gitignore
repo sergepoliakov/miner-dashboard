@@ -1,0 +1,23 @@
+# Runtime configuration belongs outside this repository.
+.env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+config/
+state/
+private/
+backups/
+*.sqlite*
+*.db
+*.log
+*.jsonl
+*.pem
+*.key
+*.p12
+*credentials*.json
+*auth*.json
+!examples/*.example.json
+.DS_Store
